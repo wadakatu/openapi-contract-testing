@@ -1,0 +1,143 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "Petstore",
+        "version": "1.0.0"
+    },
+    "paths": {
+        "/v1/pets": {
+            "get": {
+                "summary": "List all pets",
+                "operationId": "listPets",
+                "responses": {
+                    "200": {
+                        "description": "A list of pets",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["data"],
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "required": ["id", "name"],
+                                                "properties": {
+                                                    "id": {
+                                                        "type": "integer"
+                                                    },
+                                                    "name": {
+                                                        "type": "string"
+                                                    },
+                                                    "tag": {
+                                                        "type": ["string", "null"]
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "summary": "Create a pet",
+                "operationId": "createPet",
+                "responses": {
+                    "201": {
+                        "description": "Pet created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["data"],
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "required": ["id", "name"],
+                                            "properties": {
+                                                "id": {
+                                                    "type": "integer"
+                                                },
+                                                "name": {
+                                                    "type": "string"
+                                                },
+                                                "tag": {
+                                                    "type": ["string", "null"]
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/pets/{petId}": {
+            "get": {
+                "summary": "Info for a specific pet",
+                "operationId": "showPetById",
+                "responses": {
+                    "200": {
+                        "description": "Expected response to a valid request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["data"],
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "required": ["id", "name"],
+                                            "properties": {
+                                                "id": {
+                                                    "type": "integer"
+                                                },
+                                                "name": {
+                                                    "type": "string"
+                                                },
+                                                "tag": {
+                                                    "type": ["string", "null"]
+                                                },
+                                                "attributes": {
+                                                    "type": "array",
+                                                    "prefixItems": [
+                                                        {"type": "string"},
+                                                        {"type": "integer"}
+                                                    ]
+                                                },
+                                                "metadata": {
+                                                    "type": "object",
+                                                    "examples": [{"key": "value"}],
+                                                    "properties": {
+                                                        "key": {
+                                                            "type": "string"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "summary": "Delete a pet",
+                "operationId": "deletePet",
+                "responses": {
+                    "204": {
+                        "description": "Pet deleted"
+                    }
+                }
+            }
+        }
+    }
+}

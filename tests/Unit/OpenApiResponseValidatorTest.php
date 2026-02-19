@@ -1,0 +1,233 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Wadakatu\OpenApiContractTesting\Tests\Unit;
+
+use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\TestCase;
+use Wadakatu\OpenApiContractTesting\OpenApiResponseValidator;
+use Wadakatu\OpenApiContractTesting\OpenApiSpecLoader;
+
+class OpenApiResponseValidatorTest extends TestCase
+{
+    private OpenApiResponseValidator $validator;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        OpenApiSpecLoader::reset();
+        OpenApiSpecLoader::configure(__DIR__ . '/../fixtures/specs');
+        $this->validator = new OpenApiResponseValidator();
+    }
+
+    protected function tearDown(): void
+    {
+        OpenApiSpecLoader::reset();
+        parent::tearDown();
+    }
+
+    // ========================================
+    // OAS 3.0 tests
+    // ========================================
+
+    #[Test]
+    public function v30_valid_response_passes(): void
+    {
+        $result = $this->validator->validate(
+            'petstore-3.0',
+            'GET',
+            '/v1/pets',
+            200,
+            [
+                'data' => [
+                    ['id' => 1, 'name' => 'Fido', 'tag' => 'dog'],
+                    ['id' => 2, 'name' => 'Whiskers', 'tag' => null],
+                ],
+            ],
+        );
+
+        $this->assertTrue($result->isValid());
+        $this->assertSame('/v1/pets', $result->matchedPath());
+    }
+
+    #[Test]
+    public function v30_invalid_response_fails(): void
+    {
+        $result = $this->validator->validate(
+            'petstore-3.0',
+            'GET',
+            '/v1/pets',
+            200,
+            [
+                'data' => [
+                    ['id' => 'not-an-int', 'name' => 'Fido'],
+                ],
+            ],
+        );
+
+        $this->assertFalse($result->isValid());
+        $this->assertNotEmpty($result->errors());
+    }
+
+    #[Test]
+    public function v30_parameterized_path_matches(): void
+    {
+        $result = $this->validator->validate(
+            'petstore-3.0',
+            'GET',
+            '/v1/pets/123',
+            200,
+            [
+                'data' => [
+                    'id' => 1,
+                    'name' => 'Fido',
+                    'tag' => null,
+                    'owner' => null,
+                ],
+            ],
+        );
+
+        $this->assertTrue($result->isValid());
+        $this->assertSame('/v1/pets/{petId}', $result->matchedPath());
+    }
+
+    #[Test]
+    public function v30_no_content_response_passes(): void
+    {
+        $result = $this->validator->validate(
+            'petstore-3.0',
+            'DELETE',
+            '/v1/pets/123',
+            204,
+            null,
+        );
+
+        $this->assertTrue($result->isValid());
+        $this->assertSame('/v1/pets/{petId}', $result->matchedPath());
+    }
+
+    #[Test]
+    public function unknown_path_returns_failure(): void
+    {
+        $result = $this->validator->validate(
+            'petstore-3.0',
+            'GET',
+            '/v1/unknown',
+            200,
+            [],
+        );
+
+        $this->assertFalse($result->isValid());
+        $this->assertStringContainsString('No matching path found', $result->errors()[0]);
+    }
+
+    #[Test]
+    public function undefined_method_returns_failure(): void
+    {
+        $result = $this->validator->validate(
+            'petstore-3.0',
+            'PATCH',
+            '/v1/pets',
+            200,
+            [],
+        );
+
+        $this->assertFalse($result->isValid());
+        $this->assertStringContainsString('Method PATCH not defined', $result->errors()[0]);
+    }
+
+    #[Test]
+    public function undefined_status_code_returns_failure(): void
+    {
+        $result = $this->validator->validate(
+            'petstore-3.0',
+            'GET',
+            '/v1/pets',
+            404,
+            [],
+        );
+
+        $this->assertFalse($result->isValid());
+        $this->assertStringContainsString('Status code 404 not defined', $result->errors()[0]);
+    }
+
+    // ========================================
+    // OAS 3.1 tests
+    // ========================================
+
+    #[Test]
+    public function v31_valid_response_passes(): void
+    {
+        $result = $this->validator->validate(
+            'petstore-3.1',
+            'GET',
+            '/v1/pets',
+            200,
+            [
+                'data' => [
+                    ['id' => 1, 'name' => 'Fido', 'tag' => 'dog'],
+                    ['id' => 2, 'name' => 'Whiskers', 'tag' => null],
+                ],
+            ],
+        );
+
+        $this->assertTrue($result->isValid());
+        $this->assertSame('/v1/pets', $result->matchedPath());
+    }
+
+    #[Test]
+    public function v31_invalid_response_fails(): void
+    {
+        $result = $this->validator->validate(
+            'petstore-3.1',
+            'GET',
+            '/v1/pets',
+            200,
+            [
+                'data' => [
+                    ['id' => 'not-an-int', 'name' => 'Fido'],
+                ],
+            ],
+        );
+
+        $this->assertFalse($result->isValid());
+        $this->assertNotEmpty($result->errors());
+    }
+
+    #[Test]
+    public function v31_no_content_response_passes(): void
+    {
+        $result = $this->validator->validate(
+            'petstore-3.1',
+            'DELETE',
+            '/v1/pets/123',
+            204,
+            null,
+        );
+
+        $this->assertTrue($result->isValid());
+    }
+
+    #[Test]
+    public function v30_strip_prefixes_applied(): void
+    {
+        OpenApiSpecLoader::reset();
+        OpenApiSpecLoader::configure(__DIR__ . '/../fixtures/specs', ['/api']);
+
+        $result = $this->validator->validate(
+            'petstore-3.0',
+            'GET',
+            '/api/v1/pets',
+            200,
+            [
+                'data' => [
+                    ['id' => 1, 'name' => 'Fido'],
+                ],
+            ],
+        );
+
+        $this->assertTrue($result->isValid());
+        $this->assertSame('/v1/pets', $result->matchedPath());
+    }
+}

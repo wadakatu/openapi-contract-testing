@@ -1,0 +1,38 @@
+{
+    "name": "wadakatu/openapi-contract-testing",
+    "description": "Framework-agnostic OpenAPI 3.0/3.1 contract testing for PHPUnit with endpoint coverage tracking",
+    "keywords": ["openapi", "contract-testing", "phpunit", "api-testing", "coverage"],
+    "license": "MIT",
+    "type": "library",
+    "require": {
+        "php": "^8.2",
+        "opis/json-schema": "^2.6",
+        "phpunit/phpunit": "^11.0 || ^12.0"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.94",
+        "illuminate/testing": "^11.0 || ^12.0",
+        "phpstan/phpstan": "^2.0"
+    },
+    "suggest": {
+        "illuminate/testing": "Required for the Laravel adapter (ValidatesOpenApiSchema trait)"
+    },
+    "autoload": {
+        "psr-4": {
+            "Wadakatu\\OpenApiContractTesting\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Wadakatu\\OpenApiContractTesting\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

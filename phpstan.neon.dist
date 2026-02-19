@@ -1,0 +1,9 @@
+parameters:
+    level: 6
+    paths:
+        - src
+        - tests
+    tmpDir: .phpstan.cache
+    ignoreErrors:
+        - message: '#Trait .+ is used zero times and is not analysed#'
+          path: src/Laravel/ValidatesOpenApiSchema.php
