@@ -21,13 +21,18 @@ trait ValidatesOpenApiSchema
         $resolvedMethod = $method !== null ? $method->value : app('request')->getMethod();
         $resolvedPath = $path ?? app('request')->getPathInfo();
 
+        $content = $response->getContent();
+        if ($content === false) {
+            $this->fail('OpenAPI contract testing requires buffered responses, but getContent() returned false (streamed response?).');
+        }
+
         $validator = new OpenApiResponseValidator();
         $result = $validator->validate(
             $this->openApiSpec,
             $resolvedMethod,
             $resolvedPath,
             $response->getStatusCode(),
-            $response->getContent() !== '' ? $response->json() : null,
+            $content !== '' ? $response->json() : null,
         );
 
         if ($result->matchedPath() !== null) {

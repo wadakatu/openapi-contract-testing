@@ -66,7 +66,7 @@ class OpenApiCoverageTrackerTest extends TestCase
 
         $result = OpenApiCoverageTracker::computeCoverage('petstore-3.0');
 
-        // petstore-3.0 has: GET /v1/pets, POST /v1/pets, GET /v1/health, GET /v1/pets/{petId}, DELETE /v1/pets/{petId}
+        // See tests/fixtures/specs/petstore-3.0.json for the full endpoint list
         $this->assertSame(5, $result['total']);
         $this->assertSame(2, $result['coveredCount']);
         $this->assertCount(2, $result['covered']);
