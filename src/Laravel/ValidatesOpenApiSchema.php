@@ -18,9 +18,8 @@ trait ValidatesOpenApiSchema
         ?HttpMethod $method = null,
         ?string $path = null,
     ): void {
-        $request = app('request');
-        $resolvedMethod = $method?->value ?? $request->getMethod();
-        $resolvedPath = $path ?? $request->getPathInfo();
+        $resolvedMethod = $method !== null ? $method->value : app('request')->getMethod();
+        $resolvedPath = $path ?? app('request')->getPathInfo();
 
         $validator = new OpenApiResponseValidator();
         $result = $validator->validate(
@@ -28,7 +27,7 @@ trait ValidatesOpenApiSchema
             $resolvedMethod,
             $resolvedPath,
             $response->getStatusCode(),
-            $response->json(),
+            $response->getContent() !== '' ? $response->json() : null,
         );
 
         if ($result->matchedPath() !== null) {
