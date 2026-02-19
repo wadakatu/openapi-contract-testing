@@ -107,6 +107,22 @@ class ValidatesOpenApiSchemaTest extends TestCase
     }
 
     #[Test]
+    public function validation_failure_message_includes_spec_name(): void
+    {
+        $body = (string) json_encode(['wrong_key' => 'value'], JSON_THROW_ON_ERROR);
+        $response = $this->makeTestResponse($body, 200);
+
+        $this->expectException(AssertionFailedError::class);
+        $this->expectExceptionMessage('spec: petstore-3.0');
+
+        $this->assertResponseMatchesOpenApiSchema(
+            $response,
+            HttpMethod::GET,
+            '/v1/pets',
+        );
+    }
+
+    #[Test]
     public function successful_validation_records_coverage(): void
     {
         $body = (string) json_encode(

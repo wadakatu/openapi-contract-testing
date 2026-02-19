@@ -19,6 +19,10 @@ trait ValidatesOpenApiSchema
         ?string $path = null,
     ): void {
         $specName = $this->openApiSpec();
+        if ($specName === '') {
+            $this->fail('openApiSpec() must return a non-empty spec name, but an empty string was returned.');
+        }
+
         $resolvedMethod = $method !== null ? $method->value : app('request')->getMethod();
         $resolvedPath = $path ?? app('request')->getPathInfo();
 
