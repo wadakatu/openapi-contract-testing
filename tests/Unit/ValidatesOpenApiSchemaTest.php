@@ -27,7 +27,6 @@ class ValidatesOpenApiSchemaTest extends TestCase
         OpenApiSpecLoader::reset();
         OpenApiSpecLoader::configure(__DIR__ . '/../fixtures/specs');
         OpenApiCoverageTracker::reset();
-        $this->openApiSpec = 'petstore-3.0';
     }
 
     protected function tearDown(): void
@@ -125,6 +124,11 @@ class ValidatesOpenApiSchemaTest extends TestCase
         $covered = OpenApiCoverageTracker::getCovered();
         $this->assertArrayHasKey('petstore-3.0', $covered);
         $this->assertArrayHasKey('GET /v1/pets', $covered['petstore-3.0']);
+    }
+
+    protected function openApiSpec(): string
+    {
+        return 'petstore-3.0';
     }
 
     private function makeTestResponse(string $content, int $statusCode): TestResponse
