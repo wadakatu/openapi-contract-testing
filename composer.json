@@ -33,6 +33,13 @@
             "dealerdirect/phpcodesniffer-composer-installer": true
         }
     },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Studio\\OpenApiContractTesting\\Laravel\\OpenApiContractTestingServiceProvider"
+            ]
+        }
+    },
     "minimum-stability": "stable",
     "prefer-stable": true
 }

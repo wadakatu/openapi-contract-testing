@@ -6,16 +6,22 @@ parameters:
     tmpDir: .phpstan.cache
     ignoreErrors:
         -
-            message: '#Function app not found#'
+            message: '#Function (app|config) not found#'
             path: src/Laravel/ValidatesOpenApiSchema.php
         -
             message: '#Call to an undefined method Illuminate\\Testing\\TestResponse::#'
             path: src/Laravel/ValidatesOpenApiSchema.php
         -
+            message: '#Function config_path not found#'
+            path: src/Laravel/OpenApiContractTestingServiceProvider.php
+        -
             message: '#does not specify its types: TResponse#'
             paths:
                 - src/Laravel/ValidatesOpenApiSchema.php
                 - tests/Unit/ValidatesOpenApiSchemaTest.php
+                - tests/Unit/ValidatesOpenApiSchemaDefaultSpecTest.php
         -
             message: '#expects TResponse of Symfony\\Component\\HttpFoundation\\Response#'
-            path: tests/Unit/ValidatesOpenApiSchemaTest.php
+            paths:
+                - tests/Unit/ValidatesOpenApiSchemaTest.php
+                - tests/Unit/ValidatesOpenApiSchemaDefaultSpecTest.php

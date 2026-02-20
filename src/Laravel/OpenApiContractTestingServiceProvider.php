@@ -1,0 +1,22 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Studio\OpenApiContractTesting\Laravel;
+
+use Illuminate\Support\ServiceProvider;
+
+class OpenApiContractTestingServiceProvider extends ServiceProvider
+{
+    public function register(): void
+    {
+        $this->mergeConfigFrom(__DIR__ . '/config.php', 'openapi-contract-testing');
+    }
+
+    public function boot(): void
+    {
+        $this->publishes([
+            __DIR__ . '/config.php' => config_path('openapi-contract-testing.php'),
+        ], 'openapi-contract-testing');
+    }
+}
