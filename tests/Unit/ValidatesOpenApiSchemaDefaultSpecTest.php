@@ -6,7 +6,6 @@ namespace Studio\OpenApiContractTesting\Tests\Unit;
 
 use const JSON_THROW_ON_ERROR;
 
-use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\AssertionFailedError;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -14,13 +13,16 @@ use Studio\OpenApiContractTesting\HttpMethod;
 use Studio\OpenApiContractTesting\Laravel\ValidatesOpenApiSchema;
 use Studio\OpenApiContractTesting\OpenApiCoverageTracker;
 use Studio\OpenApiContractTesting\OpenApiSpecLoader;
+use Studio\OpenApiContractTesting\Tests\Helpers\CreatesTestResponse;
 
 use function json_encode;
 
+// Load namespace-level config() mock before the trait resolves the function call.
 require_once __DIR__ . '/../Helpers/LaravelConfigMock.php';
 
 class ValidatesOpenApiSchemaDefaultSpecTest extends TestCase
 {
+    use CreatesTestResponse;
     use ValidatesOpenApiSchema;
 
     protected function setUp(): void
@@ -55,12 +57,24 @@ class ValidatesOpenApiSchemaDefaultSpecTest extends TestCase
     }
 
     #[Test]
+    public function null_config_value_returns_empty_string(): void
+    {
+        $GLOBALS['__openapi_testing_config']['openapi-contract-testing.default_spec'] = null;
+
+        $this->assertSame('', $this->openApiSpec());
+    }
+
+    #[Test]
     public function empty_config_default_spec_fails_with_clear_message(): void
     {
         $response = $this->makeTestResponse('{}', 200);
 
         $this->expectException(AssertionFailedError::class);
-        $this->expectExceptionMessage('openApiSpec() must return a non-empty spec name');
+        $this->expectExceptionMessage(
+            'openApiSpec() must return a non-empty spec name, but an empty string was returned. '
+            . 'Either override openApiSpec() in your test class, or set the "default_spec" key '
+            . 'in config/openapi-contract-testing.php.',
+        );
 
         $this->assertResponseMatchesOpenApiSchema(
             $response,
@@ -85,27 +99,5 @@ class ValidatesOpenApiSchemaDefaultSpecTest extends TestCase
             HttpMethod::GET,
             '/v1/pets',
         );
-    }
-
-    private function makeTestResponse(string $content, int $statusCode): TestResponse
-    {
-        $baseResponse = new class ($content, $statusCode) {
-            public function __construct(
-                private readonly string $content,
-                private readonly int $statusCode,
-            ) {}
-
-            public function getContent(): string
-            {
-                return $this->content;
-            }
-
-            public function getStatusCode(): int
-            {
-                return $this->statusCode;
-            }
-        };
-
-        return new TestResponse($baseResponse);
     }
 }

@@ -6,7 +6,6 @@ namespace Studio\OpenApiContractTesting\Tests\Unit;
 
 use const JSON_THROW_ON_ERROR;
 
-use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\AssertionFailedError;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -14,11 +13,13 @@ use Studio\OpenApiContractTesting\HttpMethod;
 use Studio\OpenApiContractTesting\Laravel\ValidatesOpenApiSchema;
 use Studio\OpenApiContractTesting\OpenApiCoverageTracker;
 use Studio\OpenApiContractTesting\OpenApiSpecLoader;
+use Studio\OpenApiContractTesting\Tests\Helpers\CreatesTestResponse;
 
 use function json_encode;
 
 class ValidatesOpenApiSchemaTest extends TestCase
 {
+    use CreatesTestResponse;
     use ValidatesOpenApiSchema;
 
     protected function setUp(): void
@@ -145,27 +146,5 @@ class ValidatesOpenApiSchemaTest extends TestCase
     protected function openApiSpec(): string
     {
         return 'petstore-3.0';
-    }
-
-    private function makeTestResponse(string $content, int $statusCode): TestResponse
-    {
-        $baseResponse = new class ($content, $statusCode) {
-            public function __construct(
-                private readonly string $content,
-                private readonly int $statusCode,
-            ) {}
-
-            public function getContent(): string
-            {
-                return $this->content;
-            }
-
-            public function getStatusCode(): int
-            {
-                return $this->statusCode;
-            }
-        };
-
-        return new TestResponse($baseResponse);
     }
 }

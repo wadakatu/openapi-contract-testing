@@ -9,11 +9,19 @@ use Studio\OpenApiContractTesting\HttpMethod;
 use Studio\OpenApiContractTesting\OpenApiCoverageTracker;
 use Studio\OpenApiContractTesting\OpenApiResponseValidator;
 
+use function is_string;
+
 trait ValidatesOpenApiSchema
 {
     protected function openApiSpec(): string
     {
-        return config('openapi-contract-testing.default_spec', '');
+        $spec = config('openapi-contract-testing.default_spec');
+
+        if (!is_string($spec) || $spec === '') {
+            return '';
+        }
+
+        return $spec;
     }
 
     protected function assertResponseMatchesOpenApiSchema(
@@ -23,7 +31,11 @@ trait ValidatesOpenApiSchema
     ): void {
         $specName = $this->openApiSpec();
         if ($specName === '') {
-            $this->fail('openApiSpec() must return a non-empty spec name, but an empty string was returned.');
+            $this->fail(
+                'openApiSpec() must return a non-empty spec name, but an empty string was returned. '
+                . 'Either override openApiSpec() in your test class, or set the "default_spec" key '
+                . 'in config/openapi-contract-testing.php.',
+            );
         }
 
         $resolvedMethod = $method !== null ? $method->value : app('request')->getMethod();
