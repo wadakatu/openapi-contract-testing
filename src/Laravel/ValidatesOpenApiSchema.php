@@ -11,7 +11,10 @@ use Studio\OpenApiContractTesting\OpenApiResponseValidator;
 
 trait ValidatesOpenApiSchema
 {
-    abstract protected function openApiSpec(): string;
+    protected function openApiSpec(): string
+    {
+        return config('openapi-contract-testing.default_spec', '');
+    }
 
     protected function assertResponseMatchesOpenApiSchema(
         TestResponse $response,
