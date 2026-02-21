@@ -10,6 +10,7 @@ use Studio\OpenApiContractTesting\OpenApiCoverageTracker;
 use Studio\OpenApiContractTesting\OpenApiResponseValidator;
 
 use function is_string;
+use function str_contains;
 
 trait ValidatesOpenApiSchema
 {
@@ -52,7 +53,7 @@ trait ValidatesOpenApiSchema
             $resolvedMethod,
             $resolvedPath,
             $response->getStatusCode(),
-            $content !== '' ? $response->json() : null,
+            $this->extractJsonBody($response, $content),
         );
 
         if ($result->matchedPath() !== null) {
@@ -68,5 +69,20 @@ trait ValidatesOpenApiSchema
             "OpenAPI schema validation failed for {$resolvedMethod} {$resolvedPath} (spec: {$specName}):\n"
             . $result->errorMessage(),
         );
+    }
+
+    /** @return null|array<string, mixed> */
+    private function extractJsonBody(TestResponse $response, string $content): ?array
+    {
+        if ($content === '') {
+            return null;
+        }
+
+        $contentType = $response->headers->get('Content-Type', '');
+        if ($contentType !== '' && !str_contains($contentType, 'json')) {
+            return null;
+        }
+
+        return $response->json();
     }
 }

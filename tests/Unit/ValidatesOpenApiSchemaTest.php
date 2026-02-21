@@ -143,6 +143,57 @@ class ValidatesOpenApiSchemaTest extends TestCase
         $this->assertArrayHasKey('GET /v1/pets', $covered['petstore-3.0']);
     }
 
+    #[Test]
+    public function non_json_html_body_passes_as_null_body(): void
+    {
+        $response = $this->makeTestResponse(
+            '<html><body>Done</body></html>',
+            204,
+            ['Content-Type' => 'text/html'],
+        );
+
+        $this->assertResponseMatchesOpenApiSchema(
+            $response,
+            HttpMethod::DELETE,
+            '/v1/pets/123',
+        );
+    }
+
+    #[Test]
+    public function non_json_body_with_json_schema_required_fails_gracefully(): void
+    {
+        $response = $this->makeTestResponse(
+            '<html><body>OK</body></html>',
+            200,
+            ['Content-Type' => 'text/html'],
+        );
+
+        $this->expectException(AssertionFailedError::class);
+        $this->expectExceptionMessage('Response body is empty');
+
+        $this->assertResponseMatchesOpenApiSchema(
+            $response,
+            HttpMethod::GET,
+            '/v1/pets',
+        );
+    }
+
+    #[Test]
+    public function json_content_type_response_still_validates(): void
+    {
+        $body = (string) json_encode(
+            ['data' => [['id' => 1, 'name' => 'Buddy', 'tag' => 'dog']]],
+            JSON_THROW_ON_ERROR,
+        );
+        $response = $this->makeTestResponse($body, 200, ['Content-Type' => 'application/json']);
+
+        $this->assertResponseMatchesOpenApiSchema(
+            $response,
+            HttpMethod::GET,
+            '/v1/pets',
+        );
+    }
+
     protected function openApiSpec(): string
     {
         return 'petstore-3.0';
