@@ -11,7 +11,7 @@ Validate your API responses against your OpenAPI specification during testing, a
 ## Features
 
 - **OpenAPI 3.0 & 3.1 support** — Automatic version detection from the `openapi` field
-- **Response validation** — Validates response bodies against JSON Schema (Draft 07 via opis/json-schema)
+- **Response validation** — Validates response bodies against JSON Schema (Draft 07 via opis/json-schema). Supports `application/json` and any `+json` content type (e.g., `application/problem+json`)
 - **Endpoint coverage tracking** — Unique PHPUnit extension that reports which spec endpoints are covered by tests
 - **Path matching** — Handles parameterized paths (`/pets/{petId}`) with configurable prefix stripping
 - **Laravel adapter** — Optional trait for seamless integration with Laravel's `TestResponse`
