@@ -10,8 +10,10 @@ use Opis\JsonSchema\Errors\ErrorFormatter;
 use Opis\JsonSchema\Validator;
 
 use function array_keys;
+use function implode;
 use function json_decode;
 use function json_encode;
+use function str_contains;
 use function strtolower;
 
 final class OpenApiResponseValidator
@@ -58,9 +60,22 @@ final class OpenApiResponseValidator
 
         $responseSpec = $responses[$statusCodeStr];
 
-        // If no JSON content schema is defined for this response, skip body validation
-        if (!isset($responseSpec['content']['application/json']['schema'])) {
+        // If no content is defined for this response, skip body validation (e.g. 204 No Content)
+        if (!isset($responseSpec['content'])) {
             return OpenApiValidationResult::success($matchedPath);
+        }
+
+        /** @var array<string, array<string, mixed>> $content */
+        $content = $responseSpec['content'];
+        $schema = $this->findJsonSchema($content);
+
+        if ($schema === null) {
+            /** @var string[] $definedTypes */
+            $definedTypes = array_keys($content);
+
+            return OpenApiValidationResult::failure([
+                "No JSON-compatible content type found for {$method} {$matchedPath} (status {$statusCode}) in '{$specName}' spec. Defined content types: " . implode(', ', $definedTypes),
+            ]);
         }
 
         if ($responseBody === null) {
@@ -68,9 +83,6 @@ final class OpenApiResponseValidator
                 "Response body is empty but {$method} {$matchedPath} (status {$statusCode}) defines a JSON schema in '{$specName}' spec.",
             ]);
         }
-
-        /** @var array<string, mixed> $schema */
-        $schema = $responseSpec['content']['application/json']['schema'];
         $jsonSchema = OpenApiSchemaConverter::convert($schema, $version);
 
         // opis/json-schema requires an object, so encode then decode
@@ -106,5 +118,22 @@ final class OpenApiResponseValidator
         }
 
         return OpenApiValidationResult::failure($errors);
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $content
+     *
+     * @return null|array<string, mixed>
+     */
+    private function findJsonSchema(array $content): ?array
+    {
+        foreach ($content as $contentType => $mediaType) {
+            if (str_contains(strtolower($contentType), 'json') && isset($mediaType['schema'])) {
+                /** @var array<string, mixed> */
+                return $mediaType['schema'];
+            }
+        }
+
+        return null;
     }
 }
