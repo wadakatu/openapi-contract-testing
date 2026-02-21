@@ -369,8 +369,10 @@ class OpenApiResponseValidatorTest extends TestCase
         );
 
         $this->assertFalse($result->isValid());
-        $this->assertStringContainsString('not defined', $result->errors()[0]);
-        $this->assertStringContainsString('text/plain', $result->errors()[0]);
+        $this->assertStringContainsString("Response Content-Type 'text/plain' is not defined for", $result->errors()[0]);
+        $this->assertStringContainsString('text/html', $result->errors()[0]);
+        $this->assertStringContainsString('application/json', $result->errors()[0]);
+        $this->assertSame('/v1/pets', $result->matchedPath());
     }
 
     #[Test]
@@ -383,6 +385,75 @@ class OpenApiResponseValidatorTest extends TestCase
             409,
             null,
             'text/html; charset=utf-8',
+        );
+
+        $this->assertTrue($result->isValid());
+        $this->assertSame('/v1/pets', $result->matchedPath());
+    }
+
+    #[Test]
+    public function v30_json_response_content_type_with_charset_validates_schema(): void
+    {
+        $result = $this->validator->validate(
+            'petstore-3.0',
+            'POST',
+            '/v1/pets',
+            409,
+            ['error' => 'Pet already exists'],
+            'application/json; charset=utf-8',
+        );
+
+        $this->assertTrue($result->isValid());
+        $this->assertSame('/v1/pets', $result->matchedPath());
+    }
+
+    #[Test]
+    public function v30_json_response_content_type_with_charset_and_invalid_body_fails(): void
+    {
+        $result = $this->validator->validate(
+            'petstore-3.0',
+            'POST',
+            '/v1/pets',
+            409,
+            ['wrong_key' => 'value'],
+            'application/json; charset=utf-8',
+        );
+
+        $this->assertFalse($result->isValid());
+        $this->assertNotEmpty($result->errors());
+    }
+
+    #[Test]
+    public function v30_vendor_json_response_content_type_validates_schema(): void
+    {
+        $result = $this->validator->validate(
+            'petstore-3.0',
+            'GET',
+            '/v1/pets',
+            400,
+            [
+                'type' => 'https://example.com/bad-request',
+                'title' => 'Bad Request',
+                'status' => 400,
+                'detail' => 'Invalid query parameter',
+            ],
+            'application/problem+json',
+        );
+
+        $this->assertTrue($result->isValid());
+        $this->assertSame('/v1/pets', $result->matchedPath());
+    }
+
+    #[Test]
+    public function v30_case_insensitive_response_content_type_matches_spec(): void
+    {
+        $result = $this->validator->validate(
+            'petstore-3.0',
+            'POST',
+            '/v1/pets',
+            409,
+            null,
+            'Text/HTML',
         );
 
         $this->assertTrue($result->isValid());
