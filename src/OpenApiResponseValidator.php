@@ -13,7 +13,7 @@ use function array_keys;
 use function implode;
 use function json_decode;
 use function json_encode;
-use function str_contains;
+use function str_ends_with;
 use function strtolower;
 
 final class OpenApiResponseValidator
@@ -67,10 +67,9 @@ final class OpenApiResponseValidator
 
         /** @var array<string, array<string, mixed>> $content */
         $content = $responseSpec['content'];
-        $schema = $this->findJsonSchema($content);
+        $jsonContentType = $this->findJsonContentType($content);
 
-        if ($schema === null) {
-            /** @var string[] $definedTypes */
+        if ($jsonContentType === null) {
             $definedTypes = array_keys($content);
 
             return OpenApiValidationResult::failure([
@@ -78,11 +77,18 @@ final class OpenApiResponseValidator
             ]);
         }
 
+        if (!isset($content[$jsonContentType]['schema'])) {
+            return OpenApiValidationResult::success($matchedPath);
+        }
+
         if ($responseBody === null) {
             return OpenApiValidationResult::failure([
-                "Response body is empty but {$method} {$matchedPath} (status {$statusCode}) defines a JSON schema in '{$specName}' spec.",
+                "Response body is empty but {$method} {$matchedPath} (status {$statusCode}) defines a JSON-compatible response schema in '{$specName}' spec.",
             ]);
         }
+
+        /** @var array<string, mixed> $schema */
+        $schema = $content[$jsonContentType]['schema'];
         $jsonSchema = OpenApiSchemaConverter::convert($schema, $version);
 
         // opis/json-schema requires an object, so encode then decode
@@ -121,16 +127,21 @@ final class OpenApiResponseValidator
     }
 
     /**
-     * @param array<string, array<string, mixed>> $content
+     * Find the first JSON-compatible content type from the response spec.
      *
-     * @return null|array<string, mixed>
+     * Matches "application/json" exactly and any type with a "+json" structured
+     * syntax suffix (RFC 6838), such as "application/problem+json" and
+     * "application/vnd.api+json". Matching is case-insensitive.
+     *
+     * @param array<string, array<string, mixed>> $content
      */
-    private function findJsonSchema(array $content): ?array
+    private function findJsonContentType(array $content): ?string
     {
         foreach ($content as $contentType => $mediaType) {
-            if (str_contains(strtolower($contentType), 'json') && isset($mediaType['schema'])) {
-                /** @var array<string, mixed> */
-                return $mediaType['schema'];
+            $lower = strtolower($contentType);
+
+            if ($lower === 'application/json' || str_ends_with($lower, '+json')) {
+                return $contentType;
             }
         }
 

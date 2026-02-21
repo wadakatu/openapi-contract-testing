@@ -42,6 +42,34 @@
                             }
                         }
                     },
+                    "422": {
+                        "description": "Validation error",
+                        "content": {
+                            "Application/Problem+JSON": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["type", "title", "status"],
+                                    "properties": {
+                                        "type": {
+                                            "type": "string"
+                                        },
+                                        "title": {
+                                            "type": "string"
+                                        },
+                                        "status": {
+                                            "type": "integer"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "content": {
+                            "application/json": {}
+                        }
+                    },
                     "400": {
                         "description": "Bad request",
                         "content": {
