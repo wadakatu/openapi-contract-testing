@@ -9,6 +9,8 @@ use PHPUnit\Framework\TestCase;
 use Studio\OpenApiContractTesting\OpenApiResponseValidator;
 use Studio\OpenApiContractTesting\OpenApiSpecLoader;
 
+use function count;
+
 class OpenApiResponseValidatorTest extends TestCase
 {
     private OpenApiResponseValidator $validator;
@@ -583,6 +585,76 @@ class OpenApiResponseValidatorTest extends TestCase
 
         $this->assertTrue($result->isValid());
     }
+
+    // ========================================
+    // maxErrors tests
+    // ========================================
+
+    #[Test]
+    public function default_max_errors_reports_multiple_errors(): void
+    {
+        $result = $this->validator->validate(
+            'petstore-3.0',
+            'GET',
+            '/v1/pets',
+            200,
+            [
+                'data' => [
+                    ['id' => 'not-an-int', 'name' => 123],
+                    ['id' => 'also-not-an-int', 'name' => 456],
+                ],
+            ],
+        );
+
+        $this->assertFalse($result->isValid());
+        $this->assertGreaterThan(1, count($result->errors()));
+    }
+
+    #[Test]
+    public function max_errors_one_limits_to_single_error(): void
+    {
+        $validator = new OpenApiResponseValidator(maxErrors: 1);
+        $result = $validator->validate(
+            'petstore-3.0',
+            'GET',
+            '/v1/pets',
+            200,
+            [
+                'data' => [
+                    ['id' => 'not-an-int', 'name' => 123],
+                    ['id' => 'also-not-an-int', 'name' => 456],
+                ],
+            ],
+        );
+
+        $this->assertFalse($result->isValid());
+        $this->assertCount(1, $result->errors());
+    }
+
+    #[Test]
+    public function max_errors_zero_reports_all_errors(): void
+    {
+        $validator = new OpenApiResponseValidator(maxErrors: 0);
+        $result = $validator->validate(
+            'petstore-3.0',
+            'GET',
+            '/v1/pets',
+            200,
+            [
+                'data' => [
+                    ['id' => 'not-an-int', 'name' => 123],
+                    ['id' => 'also-not-an-int', 'name' => 456],
+                ],
+            ],
+        );
+
+        $this->assertFalse($result->isValid());
+        $this->assertGreaterThan(1, count($result->errors()));
+    }
+
+    // ========================================
+    // Strip prefix tests
+    // ========================================
 
     #[Test]
     public function v30_strip_prefixes_applied(): void
