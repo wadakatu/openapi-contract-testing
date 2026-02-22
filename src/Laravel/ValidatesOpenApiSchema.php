@@ -10,7 +10,7 @@ use Studio\OpenApiContractTesting\HttpMethod;
 use Studio\OpenApiContractTesting\OpenApiCoverageTracker;
 use Studio\OpenApiContractTesting\OpenApiResponseValidator;
 
-use function is_int;
+use function is_numeric;
 use function is_string;
 use function str_contains;
 use function strtolower;
@@ -54,7 +54,7 @@ trait ValidatesOpenApiSchema
 
         $maxErrors = config('openapi-contract-testing.max_errors', 20);
         $validator = new OpenApiResponseValidator(
-            maxErrors: is_int($maxErrors) ? $maxErrors : 20,
+            maxErrors: is_numeric($maxErrors) ? (int) $maxErrors : 20,
         );
         $result = $validator->validate(
             $specName,
