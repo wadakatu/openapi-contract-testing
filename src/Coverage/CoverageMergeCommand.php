@@ -15,6 +15,7 @@ use Studio\Gesso\Baseline\ViolationBaseline;
 use Studio\Gesso\Baseline\ViolationBaselineFile;
 use Studio\Gesso\Exception\InvalidOpenApiSpecException;
 use Studio\Gesso\Exception\SpecFileNotFoundException;
+use Studio\Gesso\Internal\ArgvParser;
 use Studio\Gesso\Internal\Deprecations;
 use Studio\Gesso\Internal\LegacyIdentity;
 use Studio\Gesso\PHPUnit\ConsoleOutput;
@@ -29,12 +30,8 @@ use Studio\Gesso\Validation\Strict\StrictRequiredMode;
 use Studio\Gesso\Validation\Strict\StrictRequiredTracker;
 use Throwable;
 
-use function array_filter;
-use function array_map;
-use function array_values;
 use function count;
 use function ctype_digit;
-use function explode;
 use function file_put_contents;
 use function getcwd;
 use function getenv;
@@ -44,12 +41,9 @@ use function is_callable;
 use function is_int;
 use function is_numeric;
 use function sprintf;
-use function str_contains;
-use function str_replace;
 use function str_starts_with;
 use function strlen;
 use function strtolower;
-use function substr;
 use function trim;
 use function unlink;
 
@@ -94,6 +88,7 @@ use function unlink;
  *     coverage_baseline_stale?: string,
  *     expect_sidecars?: int|string,
  *     help?: bool,
+ *     invalid_options?: list<string>,
  * }
  *
  * @internal Not part of the package's public API. Do not use from user code.
@@ -124,69 +119,37 @@ final class CoverageMergeCommand
      */
     public static function parseArgv(array $argv): array
     {
-        $opts = [];
-        foreach ($argv as $arg) {
-            if ($arg === '--help' || $arg === '-h') {
-                $opts['help'] = true;
+        $opts = ArgvParser::parse(
+            $argv,
+            'coverage:merge',
+            flags: ['cleanup', 'no_cleanup', 'min_coverage_strict'],
+            values: [
+                'sidecar_dir', 'spec_base_path', 'output_file', 'junit_output', 'json_output', 'html_output',
+                'github_step_summary', 'console_output', 'strict_required', 'strict_additional_properties',
+                'baseline_file', 'coverage_baseline_file', 'coverage_baseline_stale',
+                'min_endpoint_coverage', 'min_response_coverage', 'min_sdk_exercise_coverage', 'expect_sidecars',
+            ],
+            lists: ['specs', 'strip_prefixes'],
+        );
 
-                continue;
+        if (isset($opts['no_cleanup'])) {
+            $opts['cleanup'] = false;
+            unset($opts['no_cleanup']);
+        }
+        // Cast numeric values up-front so phpstan can prove the 0..100 range
+        // check in run(). Non-numeric values pass through as the raw string:
+        // run()'s resolveThreshold is the single point of validation, so a
+        // typo'd `--min-endpoint-coverage=eighty` reaches the user as one
+        // WARNING/FATAL instead of being dropped silently (issue #135 review C3).
+        foreach (['min_endpoint_coverage', 'min_response_coverage', 'min_sdk_exercise_coverage'] as $threshold) {
+            if (isset($opts[$threshold]) && is_numeric($opts[$threshold])) {
+                $opts[$threshold] = (float) $opts[$threshold];
             }
-            if (!str_starts_with($arg, '--')) {
-                continue;
-            }
-            $rest = substr($arg, 2);
-            if (str_contains($rest, '=')) {
-                [$name, $value] = explode('=', $rest, 2);
-            } else {
-                $name = $rest;
-                $value = 'true';
-            }
-            $name = str_replace('-', '_', $name);
-
-            switch ($name) {
-                case 'specs':
-                case 'strip_prefixes':
-                    $opts[$name] = array_values(array_filter(array_map('trim', explode(',', $value)), static fn(string $v): bool => $v !== ''));
-
-                    break;
-                case 'cleanup':
-                    $opts['cleanup'] = !in_array($value, ['0', 'false', 'no'], true);
-
-                    break;
-                case 'no_cleanup':
-                    $opts['cleanup'] = false;
-
-                    break;
-                case 'min_endpoint_coverage':
-                case 'min_response_coverage':
-                case 'min_sdk_exercise_coverage':
-                    // Cast numeric values up-front so phpstan can prove the
-                    // 0..100 range check in run(). For non-numeric values
-                    // pass the raw string through — run()'s resolveThreshold
-                    // is the single point of validation, so a typo'd
-                    // `--min-endpoint-coverage=eighty` reaches the user as
-                    // one WARNING/FATAL instead of being dropped silently
-                    // (issue #135 review C3).
-                    $opts[$name] = is_numeric($value) ? (float) $value : $value;
-
-                    break;
-                case 'min_coverage_strict':
-                    $opts['min_coverage_strict'] = !in_array($value, ['0', 'false', 'no'], true);
-
-                    break;
-                case 'expect_sidecars':
-                    // Same shape as the thresholds above: cast so run() can
-                    // compare an int, but pass anything else through so the
-                    // single validation point reports the typo instead of
-                    // silently dropping the guard. `ctype_digit` rather than
-                    // `is_numeric` — `--expect-sidecars=3.7` is a mistake, not
-                    // a request for three shards.
-                    $opts['expect_sidecars'] = ctype_digit($value) ? (int) $value : $value;
-
-                    break;
-                default:
-                    $opts[$name] = $value;
-            }
+        }
+        // `ctype_digit` rather than `is_numeric`: `--expect-sidecars=3.7` is a
+        // mistake, not a request for three shards.
+        if (isset($opts['expect_sidecars']) && ctype_digit($opts['expect_sidecars'])) {
+            $opts['expect_sidecars'] = (int) $opts['expect_sidecars'];
         }
 
         /** @var MergeOptions $opts */

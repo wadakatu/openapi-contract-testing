@@ -25,6 +25,7 @@ use Psr\Http\Message\RequestFactoryInterface;
 use Studio\Gesso\Exception\InvalidOpenApiSpecException;
 use Studio\Gesso\Exception\MalformedDiscriminatorException;
 use Studio\Gesso\Exception\SpecFileNotFoundException;
+use Studio\Gesso\Internal\ArgvParser;
 use Studio\Gesso\Internal\HttpRefLoader;
 use Studio\Gesso\Internal\ToolVersion;
 use Studio\Gesso\OpenApiVersion;
@@ -39,15 +40,12 @@ use Studio\Gesso\Validation\Support\MalformedSpecNode;
 use Symfony\Component\HttpClient\Psr18Client;
 use Throwable;
 
-use function array_filter;
 use function array_key_exists;
 use function array_map;
-use function array_values;
 use function class_exists;
 use function compact;
 use function count;
 use function dirname;
-use function explode;
 use function filter_var;
 use function fwrite;
 use function get_debug_type;
@@ -69,7 +67,6 @@ use function rtrim;
 use function set_error_handler;
 use function sprintf;
 use function str_contains;
-use function str_replace;
 use function str_starts_with;
 use function strlen;
 use function strtoupper;
@@ -107,82 +104,19 @@ final class DoctorCommand
      */
     public static function parseArgv(array $argv): array
     {
-        $options = ['specs' => [], 'strip_prefixes' => [], 'remote_ref_hosts' => [], 'acknowledged_unvalidatable_schemes' => [], 'invalid_options' => []];
-
-        foreach ($argv as $arg) {
-            if ($arg === 'doctor') {
-                continue;
-            }
-            if ($arg === '--help' || $arg === '-h') {
-                $options['help'] = true;
-
-                continue;
-            }
-            if (!str_starts_with($arg, '--')) {
-                $options['invalid_options'][] = $arg;
-
-                continue;
-            }
-
-            $option = substr($arg, 2);
-            [$name, $value] = str_contains($option, '=') ? explode('=', $option, 2) : [$option, 'true'];
-            $name = str_replace('-', '_', $name);
-
-            switch ($name) {
-                case 'spec':
-                    $options['specs'] = [
-                        ...$options['specs'],
-                        ...array_values(array_filter(array_map('trim', explode(',', $value)), static fn(string $item): bool => $item !== '')),
-                    ];
-
-                    break;
-                case 'strip_prefix':
-                    $options['strip_prefixes'] = [
-                        ...$options['strip_prefixes'],
-                        ...array_values(array_filter(array_map('trim', explode(',', $value)), static fn(string $item): bool => $item !== '')),
-                    ];
-
-                    break;
-                case 'format':
-                    $options['format'] = $value;
-
-                    break;
-                case 'allow_remote_refs':
-                    $options['allow_remote_refs'] = !in_array($value, ['0', 'false', 'no'], true);
-
-                    break;
-                case 'remote_ref_host':
-                    $options['remote_ref_hosts'] = [
-                        ...$options['remote_ref_hosts'],
-                        ...array_values(array_filter(array_map('trim', explode(',', $value)), static fn(string $item): bool => $item !== '')),
-                    ];
-
-                    break;
-                case 'remote_ref_max_bytes':
-                    $options['remote_ref_max_bytes'] = $value;
-
-                    break;
-                case 'acknowledge_unvalidatable_scheme':
-                    $options['acknowledged_unvalidatable_schemes'] = [
-                        ...$options['acknowledged_unvalidatable_schemes'],
-                        ...array_values(array_filter(array_map('trim', explode(',', $value)), static fn(string $item): bool => $item !== '')),
-                    ];
-
-                    break;
-                case 'local_ref_root':
-                    $options['local_ref_root'] = $value;
-
-                    break;
-                case 'phpunit_snippet':
-                    $options['phpunit_snippet'] = !in_array($value, ['0', 'false', 'no'], true);
-
-                    break;
-                default:
-                    $options['invalid_options'][] = '--' . str_replace('_', '-', $name);
-            }
-        }
-
-        return $options;
+        /** @var DoctorOptions */
+        return ArgvParser::parse(
+            $argv,
+            'doctor',
+            flags: ['allow_remote_refs', 'phpunit_snippet'],
+            values: ['format', 'remote_ref_max_bytes', 'local_ref_root'],
+            lists: [
+                'spec' => 'specs',
+                'strip_prefix' => 'strip_prefixes',
+                'remote_ref_host' => 'remote_ref_hosts',
+                'acknowledge_unvalidatable_scheme' => 'acknowledged_unvalidatable_schemes',
+            ],
+        );
     }
 
     public static function usage(string $invocation = 'gesso doctor'): string

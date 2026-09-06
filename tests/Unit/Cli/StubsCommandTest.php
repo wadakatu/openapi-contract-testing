@@ -98,6 +98,15 @@ class StubsCommandTest extends TestCase
     }
 
     #[Test]
+    public function dry_run_reads_the_same_false_spellings_as_every_other_gesso_flag(): void
+    {
+        foreach (['0', 'false', 'no'] as $spelling) {
+            $this->assertFalse(StubsCommand::parseArgv(['--dry-run=' . $spelling])['dry_run'] ?? null, $spelling);
+        }
+        $this->assertTrue(StubsCommand::parseArgv(['--dry-run=1'])['dry_run'] ?? null);
+    }
+
+    #[Test]
     public function rejects_unknown_arguments_and_adapters(): void
     {
         $this->assertSame(
