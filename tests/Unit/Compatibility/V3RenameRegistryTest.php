@@ -208,17 +208,14 @@ final class V3RenameRegistryTest extends TestCase
             $this->renames(),
             static fn(array $entry): bool => $entry['channel'] === 'unchanged-spelling',
         ));
-        sort($listed);
-
         $expected = self::UNCHANGED_SPELLINGS;
-        sort($expected);
 
         // Both directions. Checking only that a claimant is on the list leaves
         // the other way open: moving `--output-file` onto `deprecation` and
         // raising the count reads as progress on the ratchet while nothing was
         // staged, because the spelling it claims to deprecate is not going
         // anywhere.
-        $this->assertSame($expected, $listed, sprintf(
+        $this->assertEqualsCanonicalizing($expected, $listed, sprintf(
             "The unchanged-spelling channel and V3RenameRegistryTest::UNCHANGED_SPELLINGS disagree.\n"
             . "  listed in the constant but not in the fixture: %s\n"
             . '  claiming the channel but not in the constant: %s',
