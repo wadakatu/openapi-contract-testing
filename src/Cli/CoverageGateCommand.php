@@ -16,6 +16,7 @@ use JsonException;
 use RuntimeException;
 use Studio\Gesso\Coverage\JsonCoverageRenderer;
 use Studio\Gesso\Coverage\OpenApiCoverageTracker;
+use Studio\Gesso\Internal\ArgvParser;
 use Studio\Gesso\Spec\OpenApiOperationResolver;
 use Studio\Gesso\Spec\OpenApiSpecLoader;
 use Studio\Gesso\Validation\Request\ParameterCollector;
@@ -25,7 +26,6 @@ use function array_is_list;
 use function array_key_exists;
 use function array_keys;
 use function array_map;
-use function explode;
 use function file_get_contents;
 use function fwrite;
 use function getcwd;
@@ -46,13 +46,11 @@ use function pathinfo;
 use function realpath;
 use function rtrim;
 use function sprintf;
-use function str_contains;
 use function str_pad;
 use function str_replace;
 use function str_starts_with;
 use function strcmp;
 use function strlen;
-use function substr;
 use function usort;
 
 /**
@@ -99,37 +97,8 @@ final class CoverageGateCommand
      */
     public static function parseArgv(array $argv): array
     {
-        $options = ['invalid_options' => []];
-
-        foreach ($argv as $arg) {
-            if ($arg === 'coverage:gate') {
-                continue;
-            }
-            if ($arg === '--help' || $arg === '-h') {
-                $options['help'] = true;
-
-                continue;
-            }
-            if (!str_starts_with($arg, '--')) {
-                $options['invalid_options'][] = $arg;
-
-                continue;
-            }
-
-            $option = substr($arg, 2);
-            [$name, $value] = str_contains($option, '=') ? explode('=', $option, 2) : [$option, 'true'];
-            $name = str_replace('-', '_', $name);
-
-            if (!in_array($name, ['base_spec', 'spec', 'coverage', 'spec_name', 'format'], true)) {
-                $options['invalid_options'][] = '--' . str_replace('_', '-', $name);
-
-                continue;
-            }
-
-            $options[$name] = $value;
-        }
-
-        return $options;
+        /** @var GateOptions */
+        return ArgvParser::parse($argv, 'coverage:gate', values: ['base_spec', 'spec', 'coverage', 'spec_name', 'format']);
     }
 
     public static function usage(string $invocation = 'gesso coverage:gate'): string

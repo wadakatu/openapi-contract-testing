@@ -14,6 +14,7 @@ use JsonException;
 use RuntimeException;
 use Studio\Gesso\Coverage\JsonCoverageRenderer;
 use Studio\Gesso\Coverage\OpenApiCoverageTracker;
+use Studio\Gesso\Internal\ArgvParser;
 use Studio\Gesso\Spec\OpenApiSpecLoader;
 use Studio\Gesso\Stubs\StubGenerator;
 use Studio\Gesso\Stubs\StubRenderer;
@@ -22,7 +23,6 @@ use Throwable;
 use function array_keys;
 use function array_map;
 use function count;
-use function explode;
 use function file_exists;
 use function file_get_contents;
 use function file_put_contents;
@@ -42,10 +42,7 @@ use function pathinfo;
 use function realpath;
 use function rtrim;
 use function sprintf;
-use function str_contains;
-use function str_replace;
 use function str_starts_with;
-use function substr;
 
 /**
  * Scaffolding for the responses no test exercises (issue #406).
@@ -68,7 +65,6 @@ final class StubsCommand
 {
     public const EXIT_OK = 0;
     public const EXIT_USAGE = 2;
-    private const FLAGS = ['dry_run'];
     private const VALUE_OPTIONS = ['spec', 'coverage', 'spec_name', 'adapter', 'output', 'namespace', 'base_class'];
 
     /** @param null|callable(string): void $stdoutWriter */
@@ -85,42 +81,8 @@ final class StubsCommand
      */
     public static function parseArgv(array $argv): array
     {
-        $options = ['invalid_options' => []];
-
-        foreach ($argv as $arg) {
-            if ($arg === 'stubs') {
-                continue;
-            }
-            if ($arg === '--help' || $arg === '-h') {
-                $options['help'] = true;
-
-                continue;
-            }
-            if (!str_starts_with($arg, '--')) {
-                $options['invalid_options'][] = $arg;
-
-                continue;
-            }
-
-            $option = substr($arg, 2);
-            [$name, $value] = str_contains($option, '=') ? explode('=', $option, 2) : [$option, 'true'];
-            $name = str_replace('-', '_', $name);
-
-            if (in_array($name, self::FLAGS, true)) {
-                $options[$name] = $value !== 'false';
-
-                continue;
-            }
-            if (!in_array($name, self::VALUE_OPTIONS, true)) {
-                $options['invalid_options'][] = '--' . str_replace('_', '-', $name);
-
-                continue;
-            }
-
-            $options[$name] = $value;
-        }
-
-        return $options;
+        /** @var StubsOptions */
+        return ArgvParser::parse($argv, 'stubs', flags: ['dry_run'], values: self::VALUE_OPTIONS);
     }
 
     public static function usage(string $invocation = 'gesso stubs'): string
