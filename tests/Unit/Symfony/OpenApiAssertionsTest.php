@@ -22,6 +22,8 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpKernel\HttpKernelBrowser;
+use Symfony\Component\HttpKernel\HttpKernelInterface;
 
 #[OpenApiSpec('petstore-3.0')]
 final class OpenApiAssertionsTest extends TestCase
@@ -50,6 +52,25 @@ final class OpenApiAssertionsTest extends TestCase
         $response = new JsonResponse(['data' => [['id' => 1, 'name' => 'Fido', 'tag' => null]]]);
 
         $this->assertResponseMatchesOpenApiSchema($request, $response);
+    }
+
+    #[Test]
+    #[OpenApiSpec('body-boundaries')]
+    public function documented_raw_browser_request_preserves_an_empty_object(): void
+    {
+        $kernel = new class implements HttpKernelInterface {
+            public function handle(Request $request, int $type = self::MAIN_REQUEST, bool $catch = true): Response
+            {
+                return new Response($request->getContent(), 200, ['Content-Type' => 'application/json']);
+            }
+        };
+        $client = new HttpKernelBrowser($kernel);
+        $client->request('POST', '/object', server: ['CONTENT_TYPE' => 'application/json'], content: '{}');
+        $this->assertClientMatchesOpenApiSchema($client);
+
+        $client->jsonRequest('POST', '/object', []);
+        $this->expectException(AssertionFailedError::class);
+        $this->assertClientMatchesOpenApiSchema($client);
     }
 
     #[Test]

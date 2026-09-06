@@ -23,6 +23,7 @@ use Studio\Gesso\OpenApiValidationResult;
 use Studio\Gesso\UploadedPart;
 use Studio\Gesso\Validation\Strict\StrictRequiredTracker;
 use Studio\Gesso\Validation\Support\ContentTypeMatcher;
+use Studio\Gesso\Validation\Support\DeferredBodyPresence;
 use Studio\Gesso\Validation\Support\FormBodyDecoder;
 use Studio\Gesso\ValidationIssue;
 
@@ -32,6 +33,7 @@ use function array_merge;
 use function array_pad;
 use function array_values;
 use function explode;
+use function implode;
 use function is_array;
 use function json_decode;
 use function ltrim;
@@ -44,9 +46,9 @@ use function urldecode;
 /**
  * Framework-independent adapter for validating PSR-7 HTTP messages.
  *
- * Body streams are read only when they are seekable. The original cursor is
- * restored after decoding; a non-seekable stream produces a validation error
- * without being consumed.
+ * Body streams are read only when they are seekable, with the original cursor
+ * restored afterwards. Opaque request presence is inspected only when the
+ * resolved contract requires it, and known sizes need no reads at all.
  */
 final class OpenApiPsr7Validator
 {
@@ -161,7 +163,7 @@ final class OpenApiPsr7Validator
         ResponseInterface $response,
     ): OpenApiValidationResult {
         $contentType = self::contentType($response);
-        $decoded = $this->decodeBody($response->getBody(), $contentType, 'Response');
+        $decoded = $this->decodeBody($response->getBody(), $contentType === null ? null : ContentTypeMatcher::normalizeMediaType($contentType), 'Response');
         // validateWithoutRecording(): withAdapterErrors() below can promote
         // the outcome (a decode failure turns Skipped into Failure), so this
         // adapter owns the exchange's single coverage record and takes it
@@ -426,37 +428,41 @@ final class OpenApiPsr7Validator
      * multipart payload is left undecoded (the validator then reports a skip
      * rather than a silent pass).
      *
+     * Opaque bodies carry a deferred presence probe, not a guessed absent
+     * value. Only the core's required-body check may invoke that probe.
+     *
      * @return array{body: DecodedBody, errors: list<string>}
      */
     private function decodeRequestBody(RequestInterface $request, ?string $contentType): array
     {
-        if ($contentType === null || ContentTypeMatcher::isJsonContentType(
-            ContentTypeMatcher::normalizeMediaType($contentType),
-        )) {
-            return $this->decodeBody($request->getBody(), $contentType, 'Request');
+        $normalizedType = $contentType === null ? null : ContentTypeMatcher::normalizeMediaType($contentType);
+        if ($normalizedType === null || ContentTypeMatcher::isJsonContentType($normalizedType)) {
+            return $this->decodeBody($request->getBody(), $normalizedType, 'Request');
         }
 
-        if (!FormBodyDecoder::isFormMediaType(ContentTypeMatcher::normalizeMediaType($contentType))) {
-            // Opaque bodies need only a presence bit. A known stream size
-            // avoids reading bytes, including from non-seekable streams.
-            if ($request instanceof ServerRequestInterface) {
-                $parsed = $request->getParsedBody();
-                if (($parsed !== null && $parsed !== []) || $request->getUploadedFiles() !== []) {
-                    return ['body' => DecodedBody::present(null), 'errors' => []];
-                }
-            }
-            $size = $request->getBody()->getSize();
-            if ($size !== null) {
-                return ['body' => $size === 0 ? DecodedBody::absent() : DecodedBody::present(null), 'errors' => []];
-            }
-
-            // Unknown size: use the same cursor-preserving reader as JSON.
-            // An unreadable/non-seekable stream fails loudly, never guesses.
-            $read = $this->readBody($request->getBody(), 'Request');
-
+        if (!FormBodyDecoder::isFormMediaType($normalizedType)) {
             return [
-                'body' => $read['content'] === null || $read['content'] === '' ? DecodedBody::absent() : DecodedBody::present(null),
-                'errors' => $read['errors'],
+                'body' => DecodedBody::present(new DeferredBodyPresence(function () use ($request): bool {
+                    if ($request instanceof ServerRequestInterface) {
+                        $parsed = $request->getParsedBody();
+                        // Objects establish opaque presence too. Form decoding
+                        // below deliberately retains its array-only field-map policy.
+                        if (($parsed !== null && $parsed !== []) || $request->getUploadedFiles() !== []) {
+                            return true;
+                        }
+                    }
+                    $size = $request->getBody()->getSize();
+                    if ($size !== null) {
+                        return $size > 0;
+                    }
+                    $read = $this->readBody($request->getBody(), 'Request');
+                    if ($read['errors'] !== []) {
+                        throw new RuntimeException(implode(' ', $read['errors']));
+                    }
+
+                    return $read['content'] !== null && $read['content'] !== '';
+                })),
+                'errors' => [],
             ];
         }
 
@@ -545,9 +551,7 @@ final class OpenApiPsr7Validator
         ?string $contentType,
         string $subject,
     ): array {
-        if ($contentType !== null && !ContentTypeMatcher::isJsonContentType(
-            ContentTypeMatcher::normalizeMediaType($contentType),
-        )) {
+        if ($contentType !== null && !ContentTypeMatcher::isJsonContentType($contentType)) {
             return ['body' => DecodedBody::absent(), 'errors' => []];
         }
 

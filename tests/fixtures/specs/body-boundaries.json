@@ -120,6 +120,76 @@
         "responses": {
           "204": {
             "description": "Accepted"
+          },
+          "422": {
+            "description": "Invalid input"
+          }
+        }
+      }
+    },
+    "/optional-opaque": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/xml": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Accepted"
+          }
+        }
+      }
+    },
+    "/undeclared-opaque": {
+      "post": {
+        "responses": {
+          "204": {
+            "description": "Accepted"
+          }
+        }
+      }
+    },
+    "/opaque-with-header": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/xml": {}
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Accepted"
+          },
+          "422": {
+            "description": "Invalid input"
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Required",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/opaque-without-content": {
+      "post": {
+        "requestBody": {
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Accepted"
           }
         }
       }

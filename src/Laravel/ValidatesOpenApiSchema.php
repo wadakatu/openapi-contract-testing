@@ -1434,10 +1434,7 @@ trait ValidatesOpenApiSchema
         try {
             return HttpFoundationBody::request($request, $contentType);
         } catch (JsonException $e) {
-            $this->failOpenApi(
-                'Request body could not be parsed as JSON: ' . $e->getMessage()
-                . ($contentType === '' ? ' (no Content-Type header was present on the request)' : ''),
-            );
+            $this->failOpenApi(HttpFoundationBody::parseFailure($e, $contentType, 'Request'));
         }
     }
 
@@ -1451,10 +1448,7 @@ trait ValidatesOpenApiSchema
         try {
             return HttpFoundationBody::json($content, $contentType);
         } catch (JsonException $e) {
-            $this->failOpenApi(
-                'Response body could not be parsed as JSON: ' . $e->getMessage()
-                . ($contentType === '' ? ' (no Content-Type header was present on the response)' : ''),
-            );
+            $this->failOpenApi(HttpFoundationBody::parseFailure($e, $contentType, 'Response'));
         }
     }
 }

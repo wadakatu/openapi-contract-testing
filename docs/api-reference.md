@@ -24,9 +24,9 @@ $body = $rawBody === ''
 ```
 
 `fromJsonValue()` wraps an already-decoded value; it does not parse JSON text.
-Decode with `associative: false`, including nested objects. Its readonly
-`preservesJsonTypes` flag tells the validators that an empty array is genuinely
-`[]`, so it fails `type: object`. Framework and PSR-7 adapters do this for you.
+Decode with `associative: false`, including nested objects. The validators then
+know that an empty array is genuinely `[]`, so it fails `type: object`.
+Framework and PSR-7 adapters do this for you; decoder provenance is internal.
 
 Existing bare PHP arrays and `DecodedBody::present($value)` retain their legacy
 behavior: a top-level empty array is interpreted as an empty object when the

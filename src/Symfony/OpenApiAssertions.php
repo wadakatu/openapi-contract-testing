@@ -35,7 +35,6 @@ use function implode;
 use function is_scalar;
 use function is_string;
 use function sprintf;
-use function strtolower;
 use function strtoupper;
 use function var_export;
 
@@ -453,10 +452,7 @@ trait OpenApiAssertions
         try {
             return HttpFoundationBody::request($request, $contentType);
         } catch (JsonException $e) {
-            $this->failOpenApi(
-                'Request body could not be parsed as JSON: ' . $e->getMessage()
-                . ($contentType === '' ? ' (no Content-Type header was present on the request)' : ''),
-            );
+            $this->failOpenApi(HttpFoundationBody::parseFailure($e, $contentType, 'Request'));
         }
     }
 
@@ -472,14 +468,7 @@ trait OpenApiAssertions
         try {
             return HttpFoundationBody::json($content, $contentType);
         } catch (JsonException $e) {
-            $this->failOpenApi(sprintf(
-                '%s body could not be parsed as JSON: %s%s',
-                $subject,
-                $e->getMessage(),
-                $contentType === ''
-                    ? sprintf(' (no Content-Type header was present on the %s)', strtolower($subject))
-                    : '',
-            ));
+            $this->failOpenApi(HttpFoundationBody::parseFailure($e, $contentType, $subject));
         }
     }
 

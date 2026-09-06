@@ -17,12 +17,34 @@ pass. Existing direct callers passing bare PHP arrays or
 The additive [`DecodedBody::fromJsonValue()`](docs/api-reference.md#decodedbody)
 factory lets direct callers opt into unambiguous JSON types.
 
+The same correction applies to **requests**. Laravel's `postJson($uri, [])`
+and Symfony's `jsonRequest('POST', $uri, [])` send `[]`, not `{}`, and now fail
+an object request schema. Their array-only payload arguments cannot express
+an empty object. Send raw JSON instead:
+
+```php
+// Laravel: use your application's Tests\TestCase.
+$this->call('POST', '/object', server: ['CONTENT_TYPE' => 'application/json'], content: '{}');
+
+// Symfony KernelBrowser / HttpKernelBrowser:
+$client->request('POST', '/object', server: ['CONTENT_TYPE' => 'application/json'], content: '{}');
+```
+
+For generated cases, send `json_encode($case->body, JSON_THROW_ON_ERROR)` as
+the raw content; see the [fuzzing dispatch examples](docs/fuzzing.md).
+Do not convert the body to an array or use `JSON_FORCE_OBJECT`: those can
+change nested empty objects or genuine arrays too. Literal JSON `null` is
+sent as the string `'null'`; omitting content means no body.
+
 Symfony and PSR-7 now retain the presence of opaque non-JSON request bodies,
 matching Laravel. A present XML body no longer fails a required-body check as
 if it were empty. This does not add XML schema validation: unsupported schemas
 still produce `Skipped`. PSR-7 does not consume opaque streams: it uses a known
 size, or restores the cursor after inspecting a seekable stream of unknown
-size. If presence cannot be determined safely, it reports a body-read failure.
+size. Inspection is deferred until the resolved contract requires the body;
+optional, undeclared, or unmatched bodies are not read. If required presence
+cannot be determined safely, it reports only a body-read failure, never a
+second "empty body" error. Other parameter/security errors remain visible.
 
 `gesso doctor` now reports malformed request-body content nodes using the same
 structural rules as runtime validation. Previously clean doctor runs may now

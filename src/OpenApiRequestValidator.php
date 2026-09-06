@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Studio\Gesso;
 
 use RuntimeException;
+use Studio\Gesso\Baseline\ViolationFingerprint;
 use Studio\Gesso\Coverage\OpenApiCoverageTracker;
 use Studio\Gesso\Spec\OpenApiOperationResolver;
 use Studio\Gesso\Spec\OpenApiPathMatcher;
@@ -363,7 +364,9 @@ final class OpenApiRequestValidator
                     $category,
                     $namedError->message,
                     instancePath: $aligned ? $violations[$index]->instancePath : $namedError->instancePath,
-                    keyword: $aligned ? $violations[$index]->keyword : $namedError->keyword,
+                    keyword: $category === 'request.body' && $bodyResult->bodyReadFailed
+                        ? ViolationFingerprint::KEYWORD_PARSE
+                        : ($aligned ? $violations[$index]->keyword : $namedError->keyword),
                     method: $method,
                     path: $matchedPath,
                     contentType: $issueContentType,
@@ -409,7 +412,9 @@ final class OpenApiRequestValidator
         //   4. the spec documents that status for THIS operation (exact
         //      / range / default fallback). Undocumented statuses keep the
         //      failure loud — that's a real spec gap and must surface.
-        if ($responseStatusCode !== null && !$this->skipPatterns->isEmpty()) {
+        // Deferred transport failures are not evidence of invalid input and
+        // must retain both their parse issue and all sibling violations.
+        if (!$bodyResult->bodyReadFailed && $responseStatusCode !== null && !$this->skipPatterns->isEmpty()) {
             $statusCodeStr = (string) $responseStatusCode;
             $matchingPattern = $this->skipPatterns->match($statusCodeStr);
             if ($matchingPattern !== null) {

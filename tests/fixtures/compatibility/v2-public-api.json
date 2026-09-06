@@ -832,14 +832,6 @@
                     "unavailable": true
                 }
             },
-            "preservesJsonTypes": {
-                "type": "bool",
-                "static": false,
-                "readonly": true,
-                "default": {
-                    "unavailable": true
-                }
-            },
             "value": {
                 "type": "mixed",
                 "static": false,

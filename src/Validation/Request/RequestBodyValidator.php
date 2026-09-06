@@ -8,6 +8,7 @@ use const JSON_THROW_ON_ERROR;
 
 use Closure;
 use JsonException;
+use RuntimeException;
 use stdClass;
 use Studio\Gesso\DecodedBody;
 use Studio\Gesso\OpenApiVersion;
@@ -16,6 +17,7 @@ use Studio\Gesso\Spec\OpenApiSchemaConverter;
 use Studio\Gesso\UploadedPart;
 use Studio\Gesso\Validation\Support\BodyStructureInspector;
 use Studio\Gesso\Validation\Support\ContentTypeMatcher;
+use Studio\Gesso\Validation\Support\DeferredBodyPresence;
 use Studio\Gesso\Validation\Support\DiscriminatorContext;
 use Studio\Gesso\Validation\Support\FormBodyDecoder;
 use Studio\Gesso\Validation\Support\MalformedSpecNode;
@@ -147,8 +149,8 @@ final class RequestBodyValidator
         $required = ($requestBodySpec['required'] ?? false) === true;
 
         if (!isset($requestBodySpec['content'])) {
-            if ($required && !$requestBody->present) {
-                return self::missingRequiredBodyResult($specName, $method, $matchedPath);
+            if ($required) {
+                return self::checkRequiredBody($requestBody, $specName, $method, $matchedPath) ?? new RequestBodyValidationResult([]);
             }
 
             return new RequestBodyValidationResult([]);
@@ -166,8 +168,11 @@ final class RequestBodyValidator
             if (!ContentTypeMatcher::isJsonContentType($normalizedType)) {
                 $matchedKey = ContentTypeMatcher::findContentTypeKey($normalizedType, $content);
                 if ($matchedKey !== null) {
-                    if ($required && !$requestBody->present) {
-                        return self::missingRequiredBodyResult($specName, $method, $matchedPath, $matchedKey);
+                    if ($required) {
+                        $presenceFailure = self::checkRequiredBody($requestBody, $specName, $method, $matchedPath, $matchedKey);
+                        if ($presenceFailure !== null) {
+                            return $presenceFailure;
+                        }
                     }
 
                     if (isset($content[$matchedKey]['itemSchema'])) {
@@ -583,6 +588,23 @@ final class RequestBodyValidator
                 return true;
             },
         ));
+    }
+
+    private static function checkRequiredBody(
+        DecodedBody $body,
+        string $specName,
+        string $method,
+        string $matchedPath,
+        ?string $matchedContentType = null,
+    ): ?RequestBodyValidationResult {
+        try {
+            $present = $body->value instanceof DeferredBodyPresence ? $body->value->isPresent() : $body->present;
+        } catch (RuntimeException $e) {
+            // The stream may contain data. Do not also claim that it is empty.
+            return new RequestBodyValidationResult([$e->getMessage()], matchedContentType: $matchedContentType, bodyReadFailed: true);
+        }
+
+        return $present ? null : self::missingRequiredBodyResult($specName, $method, $matchedPath, $matchedContentType);
     }
 
     private static function missingRequiredBodyResult(

@@ -63,6 +63,9 @@ final readonly class RequestBodyValidationResult
         public ?string $skipReason = null,
         public ?string $matchedContentType = null,
         public array $violations = [],
+        // Unknown body presence is a transport failure, not invalid input
+        // that a documented 4xx response can excuse.
+        public bool $bodyReadFailed = false,
     ) {
         if ($skipReason !== null && $errors !== []) {
             throw new InvalidArgumentException(

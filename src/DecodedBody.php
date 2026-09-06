@@ -46,6 +46,7 @@ final readonly class DecodedBody
     private function __construct(
         public bool $present,
         public mixed $value,
+        /** @internal Decoder provenance, not consumer configuration. */
         public bool $preservesJsonTypes = false,
     ) {}
 
@@ -60,6 +61,10 @@ final readonly class DecodedBody
     /**
      * A body was carried on the wire; `$value` is its decoded value (which may
      * itself be `null` for a literal JSON `null` or an opaque non-JSON body).
+     *
+     * This legacy factory enables empty-array-to-object compatibility. Do not
+     * use it for object-preserving JSON decodes: an actual `[]` could silently
+     * pass an object schema. Use {@see self::fromJsonValue()} instead.
      */
     public static function present(mixed $value): self
     {

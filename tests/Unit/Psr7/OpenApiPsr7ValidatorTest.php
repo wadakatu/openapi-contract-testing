@@ -22,12 +22,15 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\DataProviderExternal;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Message\StreamInterface;
 use Studio\Gesso\Coverage\OpenApiCoverageTracker;
 use Studio\Gesso\Psr7\OpenApiPsr7Validator;
 use Studio\Gesso\Spec\OpenApiSpecLoader;
 use Studio\Gesso\Tests\Helpers\BodyBoundaryCases;
 
+use function array_filter;
 use function array_map;
+use function array_values;
 use function implode;
 
 final class OpenApiPsr7ValidatorTest extends TestCase
@@ -685,6 +688,46 @@ final class OpenApiPsr7ValidatorTest extends TestCase
         $this->assertFalse($result->isValid());
         $this->assertStringContainsString('not seekable', $result->errorMessage());
         $this->assertSame(2, $stream->tell());
+        $this->assertCount(1, $result->errors(), 'Unknown presence must not also be reported as empty.');
+        $this->assertSame('parse', $result->issues()[0]->keyword);
+        $this->assertNull($result->issues()[0]->instancePath);
+    }
+
+    #[Test]
+    public function opaque_stream_is_not_inspected_when_presence_is_not_required(): void
+    {
+        foreach (['/optional-opaque', '/undeclared-opaque', '/missing'] as $path) {
+            $stream = $this->createMock(StreamInterface::class);
+            $stream->expects($this->never())->method('getSize');
+            $stream->expects($this->never())->method('getContents');
+            $stream->expects($this->never())->method('read');
+            $request = new Request('POST', $path, ['Content-Type' => 'application/xml'], $stream);
+            $result = (new OpenApiPsr7Validator('body-boundaries'))->validateRequest($request);
+
+            $this->assertSame($path !== '/missing', $result->isValid(), $result->errorMessage());
+            $this->assertSame($path === '/optional-opaque', $result->isSkipped());
+        }
+    }
+
+    #[Test]
+    public function unreadable_opaque_body_reports_parse_only_and_keeps_sibling_violations(): void
+    {
+        foreach (['/opaque', '/opaque-with-header', '/opaque-without-content'] as $path) {
+            $stream = $this->createMock(StreamInterface::class);
+            $stream->method('getSize')->willReturn(null);
+            $stream->method('isReadable')->willReturn(false);
+            $stream->expects($this->never())->method('getContents');
+            $request = new Request('POST', $path, ['Content-Type' => 'application/xml'], $stream);
+            $result = (new OpenApiPsr7Validator('body-boundaries'))->validateRequest($request, responseStatusCode: 422);
+
+            $this->assertFalse($result->isValid(), 'A documented 422 cannot excuse unreadable input.');
+            $this->assertCount($path === '/opaque-with-header' ? 2 : 1, $result->issues());
+            $bodyIssues = array_values(array_filter($result->issues(), static fn($issue): bool => $issue->category === 'request.body'));
+            $this->assertCount(1, $bodyIssues);
+            $this->assertSame('parse', $bodyIssues[0]->keyword);
+            $this->assertStringContainsString('not readable', $bodyIssues[0]->message);
+            $this->assertNull($bodyIssues[0]->instancePath);
+        }
     }
 
     #[Test]

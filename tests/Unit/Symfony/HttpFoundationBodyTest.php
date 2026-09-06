@@ -9,7 +9,10 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use stdClass;
+use Studio\Gesso\OpenApiVersion;
 use Studio\Gesso\Symfony\HttpFoundationBody;
+use Studio\Gesso\Validation\Request\RequestBodyValidator;
+use Studio\Gesso\Validation\Support\SchemaValidatorRunner;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -41,6 +44,31 @@ final class HttpFoundationBodyTest extends TestCase
     {
         $this->expectException(JsonException::class);
         HttpFoundationBody::request(Request::create('/', 'POST', content: '{'), 'application/json');
+    }
+
+    #[Test]
+    public function parameter_only_request_content_type_keeps_the_laravel_json_fallback(): void
+    {
+        $request = Request::create('/', 'POST', content: '{}');
+        foreach (['; charset=utf-8', '  ; charset=utf-8'] as $contentType) {
+            $body = HttpFoundationBody::request($request, $contentType);
+            $this->assertTrue($body->present);
+            $this->assertInstanceOf(stdClass::class, $body->value);
+            $this->assertTrue($body->preservesJsonTypes);
+            $result = (new RequestBodyValidator(new SchemaValidatorRunner(20)))->validate(
+                'test',
+                'POST',
+                '/',
+                ['requestBody' => ['required' => true, 'content' => ['*/*' => ['schema' => ['type' => 'object']]]]],
+                $body,
+                $contentType,
+                OpenApiVersion::V3_1,
+            );
+            $this->assertSame([], $result->errors);
+            $this->assertNotNull($result->skipReason, 'The parameter-only header must retain its pre-PR skipped outcome.');
+        }
+        // Response extraction had no such fallback; preserve its policy.
+        $this->assertFalse(HttpFoundationBody::json('{}', '; charset=utf-8')->present);
     }
 
     #[Test]

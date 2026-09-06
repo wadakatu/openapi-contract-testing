@@ -13,6 +13,8 @@ use Studio\Gesso\Validation\Support\FormBodyDecoder;
 use Symfony\Component\HttpFoundation\Request;
 
 use function json_decode;
+use function sprintf;
+use function strtolower;
 
 /**
  * Shared body extraction for Laravel and Symfony. JSON failures deliberately
@@ -29,11 +31,11 @@ final class HttpFoundationBody
         $normalizedType = ContentTypeMatcher::normalizeMediaType($contentType);
 
         if ($normalizedType === '' || ContentTypeMatcher::isJsonContentType($normalizedType)) {
-            return self::json($content, $contentType);
+            return self::decodeJson($content);
         }
 
+        $fields = HttpFoundationFormBody::fields($request);
         if (FormBodyDecoder::isFormMediaType($normalizedType)) {
-            $fields = HttpFoundationFormBody::fields($request);
             if ($fields !== null) {
                 return DecodedBody::present($fields);
             }
@@ -43,7 +45,7 @@ final class HttpFoundationBody
 
         // HttpFoundation may only retain parsed parameters / files, not raw
         // bytes. Opaque bodies need a presence bit, not a guessed JSON value.
-        return $content !== '' || $request->request->all() !== [] || $request->files->all() !== []
+        return $content !== '' || $fields !== null
             ? DecodedBody::present(null)
             : DecodedBody::absent();
     }
@@ -61,6 +63,24 @@ final class HttpFoundationBody
             return DecodedBody::absent();
         }
 
-        return DecodedBody::fromJsonValue(json_decode($content, false, flags: JSON_THROW_ON_ERROR));
+        return self::decodeJson($content);
+    }
+
+    public static function parseFailure(JsonException $exception, string $contentType, string $subject): string
+    {
+        return sprintf(
+            '%s body could not be parsed as JSON: %s%s',
+            $subject,
+            $exception->getMessage(),
+            $contentType === '' ? sprintf(' (no Content-Type header was present on the %s)', strtolower($subject)) : '',
+        );
+    }
+
+    /** @throws JsonException */
+    private static function decodeJson(string $content): DecodedBody
+    {
+        return $content === ''
+            ? DecodedBody::absent()
+            : DecodedBody::fromJsonValue(json_decode($content, false, flags: JSON_THROW_ON_ERROR));
     }
 }

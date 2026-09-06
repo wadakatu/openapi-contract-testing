@@ -213,12 +213,6 @@ final class PublicApiBaselineTest extends TestCase
         $actual = json_decode($v2Json, true, flags: JSON_THROW_ON_ERROR);
         // #560: additive JSON provenance; existing body factories stay intact.
         // See UPGRADING.md, "Unreleased: body-validation reliability".
-        $expected[DecodedBody::class]['properties']['preservesJsonTypes'] = [
-            'type' => 'bool',
-            'static' => false,
-            'readonly' => true,
-            'default' => ['unavailable' => true],
-        ];
         $expected[DecodedBody::class]['methods']['fromJsonValue'] = [
             'static' => true,
             'final' => false,
@@ -236,7 +230,6 @@ final class PublicApiBaselineTest extends TestCase
                 'attributes' => [],
             ]],
         ];
-        ksort($expected[DecodedBody::class]['properties']);
         ksort($expected[DecodedBody::class]['methods']);
         unset(
             $expected[InvalidOpenApiSpecReason::class]['cases']['ExternalRef'],

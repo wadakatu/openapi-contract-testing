@@ -1,0 +1,115 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Generated empty JSON shapes",
+    "version": "1"
+  },
+  "paths": {
+    "/object": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyObject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Raw JSON echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyObject"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/array": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Array"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Raw JSON echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Array"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/nested": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Nested"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Raw JSON echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Nested"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "EmptyObject": {
+        "type": "object",
+        "maxProperties": 0
+      },
+      "Array": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 1,
+        "items": {
+          "$ref": "#/components/schemas/EmptyObject"
+        }
+      },
+      "Nested": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "value"
+        ],
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/EmptyObject"
+          }
+        }
+      }
+    }
+  }
+}
