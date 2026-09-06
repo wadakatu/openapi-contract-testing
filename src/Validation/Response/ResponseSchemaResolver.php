@@ -11,6 +11,7 @@ use Studio\Gesso\Spec\OpenApiOperationResolver;
 use Studio\Gesso\Spec\OpenApiPathMatcher;
 use Studio\Gesso\Spec\OpenApiSchemaDialect;
 use Studio\Gesso\Spec\OpenApiSpecLoader;
+use Studio\Gesso\Validation\Support\BodyStructureInspector;
 use Studio\Gesso\Validation\Support\ContentTypeMatcher;
 use Studio\Gesso\Validation\Support\DiscriminatorContext;
 use Studio\Gesso\Validation\Support\DiscriminatorEnforcement;
@@ -270,49 +271,16 @@ final class ResponseSchemaResolver
         /** @var array<string, mixed> $content */
         $content = $responseSpec['content'];
 
-        // Pre-scan the content map for malformed media-type entries before
-        // any content negotiation runs: a media-type entry and its `schema` /
-        // `itemSchema` must each decode to a JSON object — a scalar entry
-        // would slip past the downstream `isset(...['schema'])` checks as a
-        // silent pass, a non-array `schema` would reach the converter and
-        // raise a confusing TypeError (issue #256). `array_key_exists` rather
-        // than `isset` so an explicit `schema: null` is also flagged.
-        foreach ($content as $mediaType => $mediaTypeSpec) {
-            if (MalformedSpecNode::isMalformed($mediaTypeSpec)) {
-                return ResponseSchemaResolution::malformedContent($matchedPath, $matchedResponseKey, $responseSpec, sprintf(
-                    "Malformed 'responses[%s].content[\"%s\"]' for %s %s in '%s' spec: expected object, got %s.",
-                    $statusCode,
-                    $mediaType,
-                    $method,
-                    $matchedPath,
-                    $specName,
-                    MalformedSpecNode::describe($mediaTypeSpec),
-                ));
-            }
-
-            if (array_key_exists('schema', $mediaTypeSpec) && MalformedSpecNode::isMalformed($mediaTypeSpec['schema'])) {
-                return ResponseSchemaResolution::malformedContent($matchedPath, $matchedResponseKey, $responseSpec, sprintf(
-                    "Malformed 'responses[%s].content[\"%s\"].schema' for %s %s in '%s' spec: expected object, got %s.",
-                    $statusCode,
-                    $mediaType,
-                    $method,
-                    $matchedPath,
-                    $specName,
-                    MalformedSpecNode::describe($mediaTypeSpec['schema']),
-                ));
-            }
-
-            if (array_key_exists('itemSchema', $mediaTypeSpec) && MalformedSpecNode::isMalformed($mediaTypeSpec['itemSchema'])) {
-                return ResponseSchemaResolution::malformedContent($matchedPath, $matchedResponseKey, $responseSpec, sprintf(
-                    "Malformed 'responses[%s].content[\"%s\"].itemSchema' for %s %s in '%s' spec: expected object, got %s.",
-                    $statusCode,
-                    $mediaType,
-                    $method,
-                    $matchedPath,
-                    $specName,
-                    MalformedSpecNode::describe($mediaTypeSpec['itemSchema']),
-                ));
-            }
+        // Check every declared media type before content negotiation.
+        foreach (BodyStructureInspector::content($content, sprintf('responses[%s].content', $statusCode)) as $defect) {
+            return ResponseSchemaResolution::malformedContent($matchedPath, $matchedResponseKey, $responseSpec, sprintf(
+                "Malformed '%s' for %s %s in '%s' spec: expected object, got %s.",
+                $defect['location'],
+                $method,
+                $matchedPath,
+                $specName,
+                MalformedSpecNode::describe($defect['node']),
+            ));
         }
 
         // When the actual response Content-Type is provided, handle content

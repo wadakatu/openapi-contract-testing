@@ -16,7 +16,16 @@ vendor/bin/gesso doctor \
   --strip-prefix=/api
 ```
 
-The command checks file readability and parser availability, the declared OpenAPI version and JSON Schema dialect, internal and external references, schema keywords that the validator warns about, and structurally valid operations and response definitions. It also reports recognized features that are intentionally not enforced.
+The command checks file readability and parser availability, the declared OpenAPI version and JSON Schema dialect, internal and external references, schema keywords that the validator warns about, and structurally valid operations, request bodies, and response definitions. It also reports recognized features that are intentionally not enforced.
+
+Request-body checks share the runtime validator's structural rules for
+`requestBody`, `content`, media-type entries, `schema`, `itemSchema`, and request
+`encoding` maps and entries. Doctor reports all malformed nodes as `structure`
+errors, including media types a particular request would not select and
+operations without responses in OpenAPI 3.1/3.2. These checks do not turn doctor
+into a complete OpenAPI linter: for compatibility, missing or null request-body
+and request-content nodes retain the runtime behavior, and response-side
+`encoding` is not inspected.
 
 JSON and YAML are supported. YAML requires the optional `symfony/yaml` package, just like runtime validation.
 

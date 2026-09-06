@@ -832,6 +832,14 @@
                     "unavailable": true
                 }
             },
+            "preservesJsonTypes": {
+                "type": "bool",
+                "static": false,
+                "readonly": true,
+                "default": {
+                    "unavailable": true
+                }
+            },
             "value": {
                 "type": "mixed",
                 "static": false,
@@ -850,6 +858,27 @@
                 "return_type": "self",
                 "attributes": [],
                 "parameters": []
+            },
+            "fromJsonValue": {
+                "static": true,
+                "final": false,
+                "abstract": false,
+                "returns_reference": false,
+                "return_type": "self",
+                "attributes": [],
+                "parameters": [
+                    {
+                        "name": "value",
+                        "type": "mixed",
+                        "optional": false,
+                        "variadic": false,
+                        "by_reference": false,
+                        "default": {
+                            "unavailable": true
+                        },
+                        "attributes": []
+                    }
+                ]
             },
             "fromLegacy": {
                 "static": true,

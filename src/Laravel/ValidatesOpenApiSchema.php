@@ -7,7 +7,6 @@ namespace Studio\Gesso\Laravel;
 use const E_USER_DEPRECATED;
 use const FILTER_NULL_ON_FAILURE;
 use const FILTER_VALIDATE_BOOLEAN;
-use const JSON_THROW_ON_ERROR;
 use const STDERR;
 
 use Closure;
@@ -34,13 +33,11 @@ use Studio\Gesso\SkipOpenApiResolver;
 use Studio\Gesso\Spec\OpenApiOperationResolver;
 use Studio\Gesso\Spec\OpenApiPathMatcher;
 use Studio\Gesso\Spec\OpenApiSpecLoader;
-use Studio\Gesso\Symfony\HttpFoundationFormBody;
+use Studio\Gesso\Symfony\HttpFoundationBody;
 use Studio\Gesso\Validation\Request\AcknowledgedSecuritySchemes;
 use Studio\Gesso\Validation\Request\SecuritySchemeIntrospector;
 use Studio\Gesso\Validation\Strict\StrictRequiredTracker;
-use Studio\Gesso\Validation\Support\ContentTypeMatcher;
 use Studio\Gesso\Validation\Support\DiscriminatorEnforcement;
-use Studio\Gesso\Validation\Support\FormBodyDecoder;
 use Studio\Gesso\Validation\Support\HeaderNormalizer;
 use Studio\Gesso\ValidationOutput;
 use Studio\Gesso\ValidationOutputFormat;
@@ -60,7 +57,6 @@ use function is_int;
 use function is_numeric;
 use function is_scalar;
 use function is_string;
-use function json_decode;
 use function sprintf;
 use function strtolower;
 use function strtoupper;
@@ -1428,80 +1424,15 @@ trait ValidatesOpenApiSchema
     }
 
     /**
-     * Extract the request body in the shape OpenApiRequestValidator expects.
-     * Mirrors {@see self::extractJsonBody()} for the request side: the body is
-     * JSON-decoded only when the Content-Type is a JSON media type (or absent).
-     * For non-JSON media types, the envelope records only whether raw content,
-     * parsed form parameters, or uploaded files were present; its value stays
-     * `null` because the validator does not evaluate non-JSON body schemas.
-     *
-     * A non-JSON body is left undecoded rather than guessed at: the Content-Type
-     * is forwarded to the validator separately, which resolves non-JSON media
-     * types through content negotiation. When the operation declares a
-     * `requestBody` content map, a media type missing from it is reported as
-     * "Content-Type is not defined" and one it declares is accepted without
-     * body-schema validation (the validator's schema engine is JSON-only). The
-     * JSON-ness test uses {@see ContentTypeMatcher::isJsonContentType()} so this
-     * adapter and the validator agree on exactly which media types count as
-     * JSON (issue #251).
-     *
-     * Issues #246 / #248: a non-empty body that decodes to the literal JSON
-     * `null` is returned as a present {@see DecodedBody} carrying `null`, so
-     * the validator type-checks the value against the schema instead of
-     * mistaking it for an absent body.
-     *
-     * Issue #559: JSON decoding uses `json_decode(..., false)`, so a JSON
-     * object body decodes to `stdClass` rather than being flattened to an
-     * array indistinguishable from `[]` — a nested `{}` now reaches the
-     * validator as an empty object.
+     * Share HttpFoundation extraction with the other framework adapter:
+     * JSON retains object/array types and literal-null presence, form bodies
+     * carry parsed fields or raw bytes, and opaque bodies carry presence only.
+     * Keep JSON failures in this trait's assertion/baseline handling.
      */
     private function extractRequestBody(Request $request, string $contentType): DecodedBody
     {
-        $content = $request->getContent();
-
-        // Symfony does not retain a serialized multipart/form-data body when
-        // a request is created from parsed form values or uploaded files.
-        // Preserve the wire-presence bit from all three representations so a
-        // required non-JSON body is not mistaken for an empty request. Outside
-        // the form media types the value stays null: the validator receives
-        // Content-Type separately and does not evaluate those schemas
-        // (issue #251).
-        $normalizedContentType = $contentType === '' ? '' : ContentTypeMatcher::normalizeMediaType($contentType);
-
-        if ($normalizedContentType !== '' && !ContentTypeMatcher::isJsonContentType($normalizedContentType)) {
-            // Form bodies are handed over as the parsed field map (file parts
-            // as UploadedPart) so the validator can apply the media type's
-            // schema — issue #405. Raw urlencoded bytes are forwarded as-is
-            // for the validator to parse when the bag is empty.
-            if (FormBodyDecoder::isFormMediaType($normalizedContentType)) {
-                $fields = HttpFoundationFormBody::fields($request);
-
-                if ($fields !== null) {
-                    return DecodedBody::present($fields);
-                }
-
-                return $content === '' ? DecodedBody::absent() : DecodedBody::present($content);
-            }
-
-            if ($content !== '' || $request->request->all() !== [] || $request->files->all() !== []) {
-                return DecodedBody::present(null);
-            }
-
-            return DecodedBody::absent();
-        }
-
-        if ($content === '') {
-            return DecodedBody::absent();
-        }
-
-        // The return lives inside the try so its dependence on a successful
-        // decode is local and explicit: failOpenApi() is `: never`, so the
-        // catch cannot fall through to a use of an undefined $decoded.
         try {
-            /** @var mixed $decoded */
-            $decoded = json_decode($content, false, flags: JSON_THROW_ON_ERROR);
-
-            return DecodedBody::present($decoded);
+            return HttpFoundationBody::request($request, $contentType);
         } catch (JsonException $e) {
             $this->failOpenApi(
                 'Request body could not be parsed as JSON: ' . $e->getMessage()
@@ -1511,49 +1442,14 @@ trait ValidatesOpenApiSchema
     }
 
     /**
-     * Extract the response body in the shape OpenApiResponseValidator expects.
-     * Mirrors {@see self::extractRequestBody()}: the body is JSON-decoded only
-     * when the Content-Type is a JSON media type (or absent); an empty body, or
-     * a non-JSON Content-Type, yields an absent envelope. The JSON-ness test
-     * uses {@see ContentTypeMatcher::isJsonContentType()} so this adapter and
-     * the validator agree on exactly which media types count as JSON (issue
-     * #251).
-     *
-     * Issues #246 / #248: decoding goes through `json_decode()` rather than
-     * `TestResponse::json()` so a body of the literal JSON `null` is not
-     * tripped up by Laravel's "null decode == invalid JSON" heuristic, and a
-     * scalar body is returned as-is for schema type-checking instead of being
-     * forced into an array. A present literal `null` is returned as a present
-     * {@see DecodedBody} carrying `null` so it is type-checked rather than
-     * read as an absent body — keeping this adapter aligned with the Symfony one.
-     *
-     * Issue #559: decoding uses `json_decode(..., false)`, so a JSON object
-     * body decodes to `stdClass` rather than being flattened to an array
-     * indistinguishable from `[]` — a nested `{}` now reaches the validator
-     * as an empty object.
+     * Decode JSON with type provenance via the shared HttpFoundation helper.
+     * Literal null remains present; absent and non-JSON responses retain the
+     * existing absent-envelope policy for content negotiation.
      */
     private function extractJsonBody(string $content, string $contentType): DecodedBody
     {
-        if ($content === '') {
-            return DecodedBody::absent();
-        }
-
-        // Non-JSON Content-Type: leave the body undecoded and report it absent.
-        // The validator receives the Content-Type separately and decides the
-        // contract verdict from it (issue #251).
-        if ($contentType !== '' && !ContentTypeMatcher::isJsonContentType(
-            ContentTypeMatcher::normalizeMediaType($contentType),
-        )) {
-            return DecodedBody::absent();
-        }
-
-        // See extractRequestBody(): the return is inside the try so its
-        // dependence on a successful decode is local and explicit.
         try {
-            /** @var mixed $decoded */
-            $decoded = json_decode($content, false, flags: JSON_THROW_ON_ERROR);
-
-            return DecodedBody::present($decoded);
+            return HttpFoundationBody::json($content, $contentType);
         } catch (JsonException $e) {
             $this->failOpenApi(
                 'Response body could not be parsed as JSON: ' . $e->getMessage()

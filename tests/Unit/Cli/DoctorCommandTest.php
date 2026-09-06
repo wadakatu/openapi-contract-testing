@@ -10,7 +10,11 @@ use GuzzleHttp\Psr7\HttpFactory;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Studio\Gesso\Cli\DoctorCommand;
+use Studio\Gesso\DecodedBody;
+use Studio\Gesso\OpenApiVersion;
 use Studio\Gesso\Tests\Helpers\FakeHttpClient;
+use Studio\Gesso\Validation\Request\RequestBodyValidator;
+use Studio\Gesso\Validation\Support\SchemaValidatorRunner;
 
 use function array_column;
 use function file_put_contents;
@@ -792,6 +796,58 @@ class DoctorCommandTest extends TestCase
             $this->assertSame('structure', $report['issues'][0]['category'], "case {$index}");
             $this->assertSame($expectedMessage, $report['issues'][0]['message'], "case {$index}");
         }
+    }
+
+    #[Test]
+    public function request_body_structure_matches_runtime_even_without_responses(): void
+    {
+        $cases = [
+            ['oops', 'requestBody'],
+            [['content' => 'oops'], 'requestBody.content'],
+            [['content' => ['application/json' => 'oops']], 'requestBody.content["application/json"]'],
+            [['content' => ['application/json' => ['schema' => null]]], 'requestBody.content["application/json"].schema'],
+            [['content' => ['application/json' => ['schema' => [['type' => 'string']]]]], 'requestBody.content["application/json"].schema'],
+            [['content' => ['application/json' => ['itemSchema' => 'oops']]], 'requestBody.content["application/json"].itemSchema'],
+            [['content' => ['multipart/form-data' => ['encoding' => null]]], 'requestBody.content["multipart/form-data"].encoding'],
+            [['content' => ['multipart/form-data' => ['encoding' => ['file' => 'oops']]]], 'requestBody.content["multipart/form-data"].encoding["file"]'],
+        ];
+        $validator = new RequestBodyValidator(new SchemaValidatorRunner(20));
+
+        foreach ($cases as $index => [$body, $location]) {
+            $operation = ['requestBody' => $body];
+            $spec = $this->writeSpec("request-malformed-{$index}.json", (string) json_encode([
+                'openapi' => '3.1.0',
+                'info' => ['title' => 'Test', 'version' => '1'],
+                'paths' => ['/pets' => ['post' => $operation]],
+            ], JSON_THROW_ON_ERROR));
+            $runtime = $validator->validate('test', 'POST', '/pets', $operation, DecodedBody::absent(), 'application/json', OpenApiVersion::V3_1);
+            $this->assertCount(1, $runtime->errors);
+            $this->assertStringContainsString($location, $runtime->errors[0]);
+
+            $report = $this->runJsonDoctor($spec, $exit);
+            $this->assertSame(DoctorCommand::EXIT_DIAGNOSTIC_FAILURE, $exit, "case {$index}");
+            $this->assertSame('structure', $report['issues'][0]['category']);
+            $this->assertStringContainsString($location, $report['issues'][0]['message']);
+        }
+    }
+
+    #[Test]
+    public function doctor_collects_all_malformed_request_media_nodes(): void
+    {
+        $spec = $this->writeSpec('request-multiple.json', (string) json_encode([
+            'openapi' => '3.1.0',
+            'info' => ['title' => 'Test', 'version' => '1'],
+            'paths' => ['/pets' => ['post' => ['requestBody' => ['content' => [
+                'application/json' => ['schema' => 'oops', 'itemSchema' => null],
+                'multipart/form-data' => ['encoding' => ['first' => 'oops', 'second' => null]],
+                'text/plain' => 'oops',
+            ]]]]],
+        ], JSON_THROW_ON_ERROR));
+        $report = $this->runJsonDoctor($spec, $exit);
+
+        $this->assertSame(DoctorCommand::EXIT_DIAGNOSTIC_FAILURE, $exit);
+        $this->assertCount(5, $report['issues']);
+        $this->assertSame(['structure', 'structure', 'structure', 'structure', 'structure'], array_column($report['issues'], 'category'));
     }
 
     private function writeSpec(string $name, string $contents): string

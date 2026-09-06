@@ -6,6 +6,7 @@ namespace Studio\Gesso\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use stdClass;
 use Studio\Gesso\DecodedBody;
 
 class DecodedBodyTest extends TestCase
@@ -81,5 +82,26 @@ class DecodedBodyTest extends TestCase
         $original = DecodedBody::present(null);
 
         $this->assertSame($original, DecodedBody::fromLegacy($original));
+    }
+
+    #[Test]
+    public function json_values_retain_type_provenance_through_normalization(): void
+    {
+        foreach ([[], new stdClass(), null, 0, false, 'value'] as $value) {
+            $body = DecodedBody::fromJsonValue($value);
+
+            $this->assertTrue($body->present);
+            $this->assertTrue($body->preservesJsonTypes);
+            $this->assertSame($value, $body->value);
+            $this->assertSame($body, DecodedBody::fromLegacy($body));
+        }
+    }
+
+    #[Test]
+    public function legacy_factories_do_not_claim_json_type_provenance(): void
+    {
+        $this->assertFalse(DecodedBody::absent()->preservesJsonTypes);
+        $this->assertFalse(DecodedBody::present([])->preservesJsonTypes);
+        $this->assertFalse(DecodedBody::fromLegacy([])->preservesJsonTypes);
     }
 }

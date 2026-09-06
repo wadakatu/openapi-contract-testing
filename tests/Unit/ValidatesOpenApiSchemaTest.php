@@ -7,6 +7,7 @@ namespace Studio\Gesso\Tests\Unit;
 use const JSON_THROW_ON_ERROR;
 
 use PHPUnit\Framework\AssertionFailedError;
+use PHPUnit\Framework\Attributes\DataProviderExternal;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Studio\Gesso\Attribute\OpenApiSpec;
@@ -14,10 +15,13 @@ use Studio\Gesso\Coverage\OpenApiCoverageTracker;
 use Studio\Gesso\HttpMethod;
 use Studio\Gesso\Laravel\ValidatesOpenApiSchema;
 use Studio\Gesso\Spec\OpenApiSpecLoader;
+use Studio\Gesso\Tests\Helpers\BodyBoundaryCases;
 use Studio\Gesso\Tests\Helpers\CreatesTestResponse;
 use Symfony\Component\HttpFoundation\Request;
 
 use function json_encode;
+
+require_once __DIR__ . '/../Helpers/LaravelConfigMock.php';
 
 class ValidatesOpenApiSchemaTest extends TestCase
 {
@@ -398,6 +402,42 @@ class ValidatesOpenApiSchemaTest extends TestCase
         $response = $this->makeTestResponse('{"reasoning":{}}', 200);
 
         $this->assertResponseMatchesOpenApiSchema($response, HttpMethod::POST, '/echo');
+    }
+
+    #[Test]
+    #[OpenApiSpec('body-boundaries')]
+    #[DataProviderExternal(BodyBoundaryCases::class, 'json')]
+    public function request_preserves_wire_body_boundaries(string $path, string $wire, bool $valid): void
+    {
+        $request = Request::create($path, 'POST', [], [], [], ['CONTENT_TYPE' => 'application/json'], $wire);
+        if (!$valid) {
+            $this->expectException(AssertionFailedError::class);
+        }
+        $this->runOpenApiRequestAssertion($request, null, HttpMethod::POST, $path);
+    }
+
+    #[Test]
+    #[OpenApiSpec('body-boundaries')]
+    #[DataProviderExternal(BodyBoundaryCases::class, 'json')]
+    public function response_preserves_wire_body_boundaries(string $path, string $wire, bool $valid): void
+    {
+        $response = $this->makeTestResponse($wire, 200, ['Content-Type' => 'application/json']);
+        if (!$valid) {
+            $this->expectException(AssertionFailedError::class);
+        }
+        $this->assertResponseMatchesOpenApiSchema($response, HttpMethod::POST, $path);
+    }
+
+    #[Test]
+    #[OpenApiSpec('body-boundaries')]
+    #[DataProviderExternal(BodyBoundaryCases::class, 'opaque')]
+    public function opaque_request_preserves_body_presence(string $wire, bool $valid): void
+    {
+        $request = Request::create('/opaque', 'POST', [], [], [], ['CONTENT_TYPE' => 'application/xml'], $wire);
+        if (!$valid) {
+            $this->expectException(AssertionFailedError::class);
+        }
+        $this->runOpenApiRequestAssertion($request, null, HttpMethod::POST, '/opaque');
     }
 
     protected function openApiSpec(): string

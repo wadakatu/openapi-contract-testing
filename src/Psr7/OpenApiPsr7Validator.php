@@ -430,10 +430,34 @@ final class OpenApiPsr7Validator
      */
     private function decodeRequestBody(RequestInterface $request, ?string $contentType): array
     {
-        if ($contentType === null || !FormBodyDecoder::isFormMediaType(
+        if ($contentType === null || ContentTypeMatcher::isJsonContentType(
             ContentTypeMatcher::normalizeMediaType($contentType),
         )) {
             return $this->decodeBody($request->getBody(), $contentType, 'Request');
+        }
+
+        if (!FormBodyDecoder::isFormMediaType(ContentTypeMatcher::normalizeMediaType($contentType))) {
+            // Opaque bodies need only a presence bit. A known stream size
+            // avoids reading bytes, including from non-seekable streams.
+            if ($request instanceof ServerRequestInterface) {
+                $parsed = $request->getParsedBody();
+                if (($parsed !== null && $parsed !== []) || $request->getUploadedFiles() !== []) {
+                    return ['body' => DecodedBody::present(null), 'errors' => []];
+                }
+            }
+            $size = $request->getBody()->getSize();
+            if ($size !== null) {
+                return ['body' => $size === 0 ? DecodedBody::absent() : DecodedBody::present(null), 'errors' => []];
+            }
+
+            // Unknown size: use the same cursor-preserving reader as JSON.
+            // An unreadable/non-seekable stream fails loudly, never guesses.
+            $read = $this->readBody($request->getBody(), 'Request');
+
+            return [
+                'body' => $read['content'] === null || $read['content'] === '' ? DecodedBody::absent() : DecodedBody::present(null),
+                'errors' => $read['errors'],
+            ];
         }
 
         if ($request instanceof ServerRequestInterface) {
@@ -543,7 +567,7 @@ final class OpenApiPsr7Validator
             /** @var mixed $value */
             $value = json_decode($content, false, flags: JSON_THROW_ON_ERROR);
 
-            return ['body' => DecodedBody::present($value), 'errors' => []];
+            return ['body' => DecodedBody::fromJsonValue($value), 'errors' => []];
         } catch (JsonException $e) {
             return [
                 'body' => DecodedBody::present($content),

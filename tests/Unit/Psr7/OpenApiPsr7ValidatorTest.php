@@ -12,17 +12,20 @@ use GuzzleHttp\Psr7\NoSeekStream;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Psr7\ServerRequest;
+use GuzzleHttp\Psr7\Stream;
 use GuzzleHttp\Psr7\UploadedFile;
 use GuzzleHttp\Psr7\Utils;
 use Nyholm\Psr7\Request as NyholmRequest;
 use Nyholm\Psr7\Response as NyholmResponse;
 use Nyholm\Psr7\ServerRequest as NyholmServerRequest;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\DataProviderExternal;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Studio\Gesso\Coverage\OpenApiCoverageTracker;
 use Studio\Gesso\Psr7\OpenApiPsr7Validator;
 use Studio\Gesso\Spec\OpenApiSpecLoader;
+use Studio\Gesso\Tests\Helpers\BodyBoundaryCases;
 
 use function array_map;
 use function implode;
@@ -619,6 +622,77 @@ final class OpenApiPsr7ValidatorTest extends TestCase
         $response = new Response(200, ['Content-Type' => 'application/json'], '{"reasoning":{}}');
 
         $result = $validator->validateExchange($request, $response);
+
+        $this->assertTrue($result->isValid(), $result->errorMessage());
+    }
+
+    #[Test]
+    #[DataProviderExternal(BodyBoundaryCases::class, 'json')]
+    public function request_and_response_preserve_wire_body_boundaries(string $path, string $wire, bool $valid): void
+    {
+        $validator = new OpenApiPsr7Validator('body-boundaries');
+        $request = new Request('POST', 'https://example.test' . $path, ['Content-Type' => 'application/json'], $wire);
+        $response = new Response(200, ['Content-Type' => 'application/json'], $wire);
+
+        $requestResult = $validator->validateRequest($request);
+        $responseResult = $validator->validateResponse($request, $response);
+
+        $this->assertSame($valid, $requestResult->isValid(), $requestResult->errorMessage());
+        $this->assertSame($valid, $responseResult->isValid(), $responseResult->errorMessage());
+    }
+
+    #[Test]
+    #[DataProviderExternal(BodyBoundaryCases::class, 'opaque')]
+    public function opaque_request_preserves_body_presence(string $wire, bool $valid): void
+    {
+        $request = new Request('POST', 'https://example.test/opaque', ['Content-Type' => 'application/xml'], $wire);
+        $result = (new OpenApiPsr7Validator('body-boundaries'))->validateRequest($request);
+
+        $this->assertSame($valid, $result->isValid(), $result->errorMessage());
+        $this->assertSame(0, $request->getBody()->tell());
+    }
+
+    #[Test]
+    public function opaque_known_size_non_seekable_request_does_not_consume_the_stream(): void
+    {
+        $stream = new NoSeekStream(Utils::streamFor('<a/>'));
+        $stream->read(1);
+        $request = new Request('POST', '/opaque', ['Content-Type' => 'application/xml'], $stream);
+        $result = (new OpenApiPsr7Validator('body-boundaries'))->validateRequest($request);
+
+        $this->assertTrue($result->isValid(), $result->errorMessage());
+        $this->assertSame(1, $stream->tell());
+        $this->assertSame('a/>', $stream->getContents());
+    }
+
+    #[Test]
+    public function opaque_unknown_size_request_restores_the_cursor_or_fails_without_consuming(): void
+    {
+        $stream = new class (Utils::streamFor('<a/>')->detach()) extends Stream {
+            public function getSize(): ?int
+            {
+                return null;
+            }
+        };
+        $stream->seek(2);
+        $validator = new OpenApiPsr7Validator('body-boundaries');
+        $request = new Request('POST', '/opaque', ['Content-Type' => 'application/xml'], $stream);
+        $result = $validator->validateRequest($request);
+        $this->assertTrue($result->isValid(), $result->errorMessage());
+        $this->assertSame(2, $stream->tell());
+
+        $result = $validator->validateRequest($request->withBody(new NoSeekStream($stream)));
+        $this->assertFalse($result->isValid());
+        $this->assertStringContainsString('not seekable', $result->errorMessage());
+        $this->assertSame(2, $stream->tell());
+    }
+
+    #[Test]
+    public function opaque_server_request_preserves_parsed_body_presence(): void
+    {
+        $request = (new ServerRequest('POST', '/opaque', ['Content-Type' => 'application/xml']))
+            ->withParsedBody(['value' => 'parsed']);
+        $result = (new OpenApiPsr7Validator('body-boundaries'))->validateRequest($request);
 
         $this->assertTrue($result->isValid(), $result->errorMessage());
     }

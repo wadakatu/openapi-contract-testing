@@ -1,12 +1,38 @@
 # API Reference
 
 - [`OpenApiResponseValidator`](#openapiresponsevalidator)
+- [`DecodedBody`](#decodedbody)
 - [`OpenApiPsr7Validator`](#openapipsr7validator)
 - [`OpenApiResponseExplorer`](#openapiresponseexplorer)
 - [`OpenApiSpecExplorer`](#openapispecexplorer)
 - [`OpenApiContractChecks`](#openapicontractchecks)
 - [`OpenApiSpecLoader`](#openapispecloader)
 - [`OpenApiCoverageTracker`](#openapicoveragetracker)
+
+## `DecodedBody`
+
+Both core validators accept a `DecodedBody` as their body argument. Use it
+when decoding wire JSON yourself so `{}`, `[]`, literal `null`, and an absent
+body remain distinct:
+
+```php
+use Studio\Gesso\DecodedBody;
+
+$body = $rawBody === ''
+    ? DecodedBody::absent()
+    : DecodedBody::fromJsonValue(json_decode($rawBody, false, flags: JSON_THROW_ON_ERROR));
+```
+
+`fromJsonValue()` wraps an already-decoded value; it does not parse JSON text.
+Decode with `associative: false`, including nested objects. Its readonly
+`preservesJsonTypes` flag tells the validators that an empty array is genuinely
+`[]`, so it fails `type: object`. Framework and PSR-7 adapters do this for you.
+
+Existing bare PHP arrays and `DecodedBody::present($value)` retain their legacy
+behavior: a top-level empty array is interpreted as an empty object when the
+schema explicitly accepts objects. Bare `null` still means an absent body;
+`DecodedBody::present(null)` and `DecodedBody::fromJsonValue(null)` mean present
+literal null. `DecodedBody::fromLegacy()` preserves an existing envelope.
 
 ## `OpenApiResponseValidator`
 

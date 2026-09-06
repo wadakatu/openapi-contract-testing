@@ -7,6 +7,28 @@ full record.
 Sections are ordered newest-first. If you are jumping multiple minors,
 read each intermediate section in order — behavioural changes compose.
 
+## Unreleased: body-validation reliability
+
+Adapters now preserve the distinction between top-level JSON `{}` and `[]`.
+If an endpoint declares `type: object` but returns `[]`, its test now fails;
+return `{}` or correct the schema to describe an array. This closes a silent
+pass. Existing direct callers passing bare PHP arrays or
+`DecodedBody::present([])` keep the legacy empty-object compatibility behavior.
+The additive [`DecodedBody::fromJsonValue()`](docs/api-reference.md#decodedbody)
+factory lets direct callers opt into unambiguous JSON types.
+
+Symfony and PSR-7 now retain the presence of opaque non-JSON request bodies,
+matching Laravel. A present XML body no longer fails a required-body check as
+if it were empty. This does not add XML schema validation: unsupported schemas
+still produce `Skipped`. PSR-7 does not consume opaque streams: it uses a known
+size, or restores the cursor after inspecting a seekable stream of unknown
+size. If presence cannot be determined safely, it reports a body-read failure.
+
+`gesso doctor` now reports malformed request-body content nodes using the same
+structural rules as runtime validation. Previously clean doctor runs may now
+fail with `structure` errors; repair the reported nodes before running tests.
+No flags, exit codes, diagnostic categories, or versioned wire formats change.
+
 ## Deprecations
 
 Every surface v3 removes or renames is deprecated in a v2 minor first, per the

@@ -14,6 +14,7 @@ use Studio\Gesso\OpenApiVersion;
 use Studio\Gesso\SchemaContext;
 use Studio\Gesso\Spec\OpenApiSchemaConverter;
 use Studio\Gesso\UploadedPart;
+use Studio\Gesso\Validation\Support\BodyStructureInspector;
 use Studio\Gesso\Validation\Support\ContentTypeMatcher;
 use Studio\Gesso\Validation\Support\DiscriminatorContext;
 use Studio\Gesso\Validation\Support\FormBodyDecoder;
@@ -128,24 +129,21 @@ final class RequestBodyValidator
             return new RequestBodyValidationResult([]);
         }
 
-        // A `requestBody` must decode to a JSON object; a scalar or a JSON
-        // list signals a malformed spec ({@see MalformedSpecNode}).
-        // Contract-testing tools should surface this, not mask it as "no body".
-        if (MalformedSpecNode::isMalformed($operation['requestBody'])) {
+        foreach (BodyStructureInspector::request($operation) as $defect) {
             return new RequestBodyValidationResult([
                 sprintf(
-                    "Malformed 'requestBody' for %s %s in '%s' spec: expected object, got %s.",
+                    "Malformed '%s' for %s %s in '%s' spec: expected object, got %s.",
+                    $defect['location'],
                     $method,
                     $matchedPath,
                     $specName,
-                    MalformedSpecNode::describe($operation['requestBody']),
+                    MalformedSpecNode::describe($defect['node']),
                 ),
             ]);
         }
 
         /** @var array<string, mixed> $requestBodySpec */
         $requestBodySpec = $operation['requestBody'];
-
         $required = ($requestBodySpec['required'] ?? false) === true;
 
         if (!isset($requestBodySpec['content'])) {
@@ -156,107 +154,8 @@ final class RequestBodyValidator
             return new RequestBodyValidationResult([]);
         }
 
-        if (MalformedSpecNode::isMalformed($requestBodySpec['content'])) {
-            return new RequestBodyValidationResult([
-                sprintf(
-                    "Malformed 'requestBody.content' for %s %s in '%s' spec: expected object, got %s.",
-                    $method,
-                    $matchedPath,
-                    $specName,
-                    MalformedSpecNode::describe($requestBodySpec['content']),
-                ),
-            ]);
-        }
-
         /** @var array<string, mixed> $content */
         $content = $requestBodySpec['content'];
-
-        foreach ($content as $mediaType => $mediaTypeSpec) {
-            // The @var on $content narrows values to array, but PHPDoc is unchecked at
-            // runtime — a malformed spec like `content: {"application/json": "oops"}`
-            // would TypeError on downstream array accesses. Surface it as a loud spec
-            // error instead, matching the sibling guard on `requestBody.content` above.
-            // A JSON list written for the entry is rejected the same way
-            // ({@see MalformedSpecNode}).
-            if (MalformedSpecNode::isMalformed($mediaTypeSpec)) {
-                return new RequestBodyValidationResult([
-                    sprintf(
-                        "Malformed 'requestBody.content[\"%s\"]' for %s %s in '%s' spec: expected object, got %s.",
-                        $mediaType,
-                        $method,
-                        $matchedPath,
-                        $specName,
-                        MalformedSpecNode::describe($mediaTypeSpec),
-                    ),
-                ]);
-            }
-
-            // `schema: "oops"` (or any other non-array scalar) would slip past the
-            // downstream `isset(...['schema'])` presence check and reach
-            // OpenApiSchemaConverter::convert() as a scalar, producing a confusing
-            // TypeError instead of a spec-level error. array_key_exists rather than
-            // isset so an explicit `schema: null` is also flagged.
-            if (array_key_exists('schema', $mediaTypeSpec) && MalformedSpecNode::isMalformed($mediaTypeSpec['schema'])) {
-                return new RequestBodyValidationResult([
-                    sprintf(
-                        "Malformed 'requestBody.content[\"%s\"].schema' for %s %s in '%s' spec: expected object, got %s.",
-                        $mediaType,
-                        $method,
-                        $matchedPath,
-                        $specName,
-                        MalformedSpecNode::describe($mediaTypeSpec['schema']),
-                    ),
-                ]);
-            }
-
-            if (array_key_exists('itemSchema', $mediaTypeSpec) && MalformedSpecNode::isMalformed($mediaTypeSpec['itemSchema'])) {
-                return new RequestBodyValidationResult([
-                    sprintf(
-                        "Malformed 'requestBody.content[\"%s\"].itemSchema' for %s %s in '%s' spec: expected object, got %s.",
-                        $mediaType,
-                        $method,
-                        $matchedPath,
-                        $specName,
-                        MalformedSpecNode::describe($mediaTypeSpec['itemSchema']),
-                    ),
-                ]);
-            }
-
-            // Checked for every declared media type, like its `schema` /
-            // `itemSchema` siblings above: a malformed `encoding` node is a
-            // broken spec whether or not this particular request carried a
-            // body that would reach it (issue #405).
-            if (array_key_exists('encoding', $mediaTypeSpec) && MalformedSpecNode::isMalformed($mediaTypeSpec['encoding'])) {
-                return new RequestBodyValidationResult([
-                    sprintf(
-                        "Malformed 'requestBody.content[\"%s\"].encoding' for %s %s in '%s' spec: expected object, got %s.",
-                        $mediaType,
-                        $method,
-                        $matchedPath,
-                        $specName,
-                        MalformedSpecNode::describe($mediaTypeSpec['encoding']),
-                    ),
-                ]);
-            }
-
-            /** @var array<string, mixed> $encodingSpec */
-            $encodingSpec = $mediaTypeSpec['encoding'] ?? [];
-            foreach ($encodingSpec as $partName => $partEncoding) {
-                if (MalformedSpecNode::isMalformed($partEncoding)) {
-                    return new RequestBodyValidationResult([
-                        sprintf(
-                            "Malformed 'requestBody.content[\"%s\"].encoding[\"%s\"]' for %s %s in '%s' spec: expected object, got %s.",
-                            $mediaType,
-                            $partName,
-                            $method,
-                            $matchedPath,
-                            $specName,
-                            MalformedSpecNode::describe($partEncoding),
-                        ),
-                    ]);
-                }
-            }
-        }
 
         // When the actual request Content-Type is provided, handle content negotiation:
         // non-JSON types are checked for spec presence only, while JSON-compatible types
@@ -384,26 +283,9 @@ final class RequestBodyValidator
         $schema = $content[$jsonContentType]['schema'];
         $jsonSchema = OpenApiSchemaConverter::convert($schema, $version, SchemaContext::Request, $discriminatorContext, $jsonSchemaDialect);
 
-        // PHP's `json_decode($json, true)` returns `[]` for both `[]` and `{}`.
-        // The framework adapters decode JSON bodies as objects (assoc=false,
-        // issue #559), so `$bodyValue` is `[]` here only in two cases: (a) a
-        // caller invokes the public `validate()` entry point directly with a
-        // legacy assoc-array body instead of going through an adapter — still
-        // supported, see the `$requestBody` param on
-        // {@see \Studio\Gesso\OpenApiRequestValidator::validate()} — or (b) the wire
-        // body was a genuine empty JSON array `[]`, which decodes to PHP `[]`
-        // regardless of the decode mode. ObjectConverter preserves empty
-        // arrays as JSON arrays, so a schema's `type: object` would then
-        // reject the body with a misleading "must match the type: object"
-        // error for case (a). Coerce `[]` → stdClass when the schema
-        // explicitly accepts an object so the empty-object-against-type-object
-        // case (very common for "create with defaults" bodies) validates.
-        // Known trade-off for case (b): a genuine wire-level empty array
-        // still silently passes `type: object` instead of failing. Issue #560
-        // tracks giving `DecodedBody` a provenance bit for object-shaped wire
-        // decodes so unambiguous paths can skip this coercion.
-        // Mirrors the response-side fix at ResponseBodyValidator::validate().
-        if ($bodyValue === [] && self::schemaAcceptsObject($schema)) {
+        // Only legacy assoc-array callers need the ambiguous [] -> {} shim.
+        // Adapters retain JSON types, so a wire [] must stay an array.
+        if (!$requestBody->preservesJsonTypes && $bodyValue === [] && self::schemaAcceptsObject($schema)) {
             $bodyValue = new stdClass();
         }
 

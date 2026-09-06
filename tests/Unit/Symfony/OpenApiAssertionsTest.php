@@ -8,6 +8,7 @@ use const UPLOAD_ERR_INI_SIZE;
 use const UPLOAD_ERR_OK;
 
 use PHPUnit\Framework\AssertionFailedError;
+use PHPUnit\Framework\Attributes\DataProviderExternal;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Studio\Gesso\Attribute\OpenApiSpec;
@@ -15,6 +16,7 @@ use Studio\Gesso\Coverage\OpenApiCoverageTracker;
 use Studio\Gesso\Exception\InvalidOpenApiSpecException;
 use Studio\Gesso\Spec\OpenApiSpecLoader;
 use Studio\Gesso\Symfony\OpenApiAssertions;
+use Studio\Gesso\Tests\Helpers\BodyBoundaryCases;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -48,6 +50,43 @@ final class OpenApiAssertionsTest extends TestCase
         $response = new JsonResponse(['data' => [['id' => 1, 'name' => 'Fido', 'tag' => null]]]);
 
         $this->assertResponseMatchesOpenApiSchema($request, $response);
+    }
+
+    #[Test]
+    #[OpenApiSpec('body-boundaries')]
+    #[DataProviderExternal(BodyBoundaryCases::class, 'json')]
+    public function request_preserves_wire_body_boundaries(string $path, string $wire, bool $valid): void
+    {
+        $request = Request::create($path, 'POST', [], [], [], ['CONTENT_TYPE' => 'application/json'], $wire);
+        if (!$valid) {
+            $this->expectException(AssertionFailedError::class);
+        }
+        $this->assertRequestMatchesOpenApiSchema($request);
+    }
+
+    #[Test]
+    #[OpenApiSpec('body-boundaries')]
+    #[DataProviderExternal(BodyBoundaryCases::class, 'json')]
+    public function response_preserves_wire_body_boundaries(string $path, string $wire, bool $valid): void
+    {
+        $request = Request::create($path, 'POST');
+        $response = new Response($wire, 200, ['Content-Type' => 'application/json']);
+        if (!$valid) {
+            $this->expectException(AssertionFailedError::class);
+        }
+        $this->assertResponseMatchesOpenApiSchema($request, $response);
+    }
+
+    #[Test]
+    #[OpenApiSpec('body-boundaries')]
+    #[DataProviderExternal(BodyBoundaryCases::class, 'opaque')]
+    public function opaque_request_preserves_body_presence(string $wire, bool $valid): void
+    {
+        $request = Request::create('/opaque', 'POST', [], [], [], ['CONTENT_TYPE' => 'application/xml'], $wire);
+        if (!$valid) {
+            $this->expectException(AssertionFailedError::class);
+        }
+        $this->assertRequestMatchesOpenApiSchema($request);
     }
 
     #[Test]
