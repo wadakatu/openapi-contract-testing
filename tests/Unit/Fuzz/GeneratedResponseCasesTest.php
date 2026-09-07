@@ -46,7 +46,7 @@ class GeneratedResponseCasesTest extends TestCase
     public function each_invokes_the_optional_hook_immediately_before_each_callback(): void
     {
         $events = [];
-        $cases = GeneratedResponseCases::withBeforeEach(
+        $cases = new GeneratedResponseCases(
             [$this->caseAt(0), $this->caseAt(1)],
             static function () use (&$events): void {
                 $events[] = 'before';

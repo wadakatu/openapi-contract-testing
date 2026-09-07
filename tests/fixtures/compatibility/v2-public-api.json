@@ -3940,6 +3940,15 @@
                             "unavailable": true
                         },
                         "attributes": []
+                    },
+                    {
+                        "name": "beforeEach",
+                        "type": "?Closure",
+                        "optional": true,
+                        "variadic": false,
+                        "by_reference": false,
+                        "default": null,
+                        "attributes": []
                     }
                 ]
             },

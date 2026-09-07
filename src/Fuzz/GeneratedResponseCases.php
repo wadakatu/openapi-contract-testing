@@ -22,27 +22,15 @@ final readonly class GeneratedResponseCases implements Countable, IteratorAggreg
 {
     /**
      * @param list<GeneratedResponseCase> $cases
+     * @param null|Closure(): void $beforeEach Explorer hook run before each callback in {@see each()}.
      */
-    public function __construct(public array $cases)
+    public function __construct(public array $cases, private ?Closure $beforeEach = null)
     {
         if ($cases === []) {
             throw new InvalidArgumentException(
                 'GeneratedResponseCases must contain at least one GeneratedResponseCase; an empty SDK exercise would assert nothing.',
             );
         }
-    }
-
-    /**
-     * @param list<GeneratedResponseCase> $cases
-     *
-     * @internal Response explorer construction seam; not public API.
-     */
-    public static function withBeforeEach(array $cases, Closure $beforeEach): self
-    {
-        $instance = new self($cases);
-        GeneratedResponseCasesHookRegistry::set($instance, $beforeEach);
-
-        return $instance;
     }
 
     public function count(): int
@@ -56,7 +44,9 @@ final readonly class GeneratedResponseCases implements Countable, IteratorAggreg
     public function each(callable $callback): self
     {
         foreach ($this->cases as $case) {
-            GeneratedResponseCasesHookRegistry::invoke($this);
+            if ($this->beforeEach !== null) {
+                ($this->beforeEach)();
+            }
             $callback($case);
         }
 
