@@ -11,7 +11,8 @@ use RuntimeException;
  * An opaque body whose presence must only be inspected if the resolved
  * contract requires it. A failed inspection is unknown, never absent.
  *
- * @internal Adapter-to-validator handoff, not a decoded consumer body value.
+ * @internal Separate adapter-to-validator metadata; never store this probe in
+ *           DecodedBody::value or treat it as a present decoded JSON value.
  */
 final readonly class DeferredBodyPresence
 {

@@ -234,7 +234,8 @@ instead of returning an empty collection.
 The collection is `Countable` and `IteratorAggregate`. Each readonly case
 exposes `body`, nullable `status` and `contentType`, `seed`, `caseIndex`, and
 `pinnedBranch`; `bodyAsObject()` supplies decoded JSON shapes to SDKs,
-`bodyAsArray()` supports array-typed consumers, and `replaySnippet()` renders a
+`bodyAsArray()` is a lossy compatibility view for array-typed consumers (empty
+objects become arrays, including nested ones), and `replaySnippet()` renders a
 focused reproduction. `assertRoundTrip()` first validates the SDK output
 against the exact converted response schema, then requires all generated object
 keys and values to survive recursively; JSON lists compare exactly.
@@ -270,6 +271,12 @@ operations. `authenticateUsing()`, `setUpUsing()`, `tearDownUsing()`, and
 `SpecExplorationSummary` exposes executed operation/case counts, the executed
 `ExploredOperation` rows (including their coverage keys), and a list of
 `ExplorationSkip` entries. See [schema-driven request fuzzing](fuzzing.md).
+
+Each `ExploredCase` exposes `bodyAsJson(): string` for raw HTTP content without
+losing empty or nested objects, arrays, scalars, or numeric object keys. Encoding
+errors throw `JsonException`; a null value encodes as `'null'`, so omit content
+separately for no-body operations or missing-body probes. `bodyAsArray()` remains
+a lossy compatibility view, not the recommended HTTP dispatch path.
 
 Call `negativeCases([4])` to switch a whole-spec plan to targeted invalid
 inputs and carry explicit expected response classes on each `ExploredCase`.

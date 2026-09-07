@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Studio\Gesso\Tests\Unit\Fuzz;
 
 use InvalidArgumentException;
+use JsonException;
 use LogicException;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -164,6 +165,31 @@ class ExploredCaseTest extends TestCase
         $this->assertSame(['name' => 'Snowy'], $arrayCase->bodyAsArray());
         $this->assertNull($this->caseWithBody(null)->bodyAsArray());
         $this->assertSame([], $this->caseWithBody(new stdClass())->bodyAsArray());
+    }
+
+    #[Test]
+    public function encodes_json_bodies_without_losing_object_array_or_scalar_types(): void
+    {
+        foreach ([
+            [new stdClass(), '{}'],
+            [[], '[]'],
+            [(object) ['nested' => new stdClass(), 'list' => [new stdClass()]], '{"nested":{},"list":[{}]}'],
+            [(object) ['0' => 'zero'], '{"0":"zero"}'],
+            ['scalar', '"scalar"'], [false, 'false'], [42, '42'], [null, 'null'],
+        ] as [$value, $wire]) {
+            $this->assertSame($wire, $this->caseWithBody($value)->bodyAsJson());
+        }
+        $this->assertSame('{}', $this->caseWithBody(new stdClass())->bodyAsJson());
+        $this->assertSame('[]', $this->caseWithBody([])->bodyAsJson());
+        $this->assertSame('null', $this->caseWithBody(null)->bodyAsJson());
+        $this->assertSame('1.0', $this->caseWithBody(1.0)->bodyAsJson());
+    }
+
+    #[Test]
+    public function json_accessor_reports_encoding_failures(): void
+    {
+        $this->expectException(JsonException::class);
+        $this->caseWithBody("\xFF")->bodyAsJson();
     }
 
     #[Test]

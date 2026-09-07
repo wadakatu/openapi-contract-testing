@@ -4,6 +4,12 @@ declare(strict_types=1);
 
 namespace Studio\Gesso;
 
+use const JSON_THROW_ON_ERROR;
+
+use JsonException;
+
+use function json_decode;
+
 /**
  * Envelope for a request / response body, carrying the absent-vs-present
  * distinction alongside its decoded value when available.
@@ -82,6 +88,18 @@ final readonly class DecodedBody
     public static function fromJsonValue(mixed $value): self
     {
         return new self(true, $value, true);
+    }
+
+    /**
+     * @internal Shared adapter decoding, including empty-vs-literal-null handling.
+     *
+     * @throws JsonException
+     */
+    public static function decodeJson(string $content): self
+    {
+        return $content === ''
+            ? self::absent()
+            : self::fromJsonValue(json_decode($content, false, flags: JSON_THROW_ON_ERROR));
     }
 
     /**

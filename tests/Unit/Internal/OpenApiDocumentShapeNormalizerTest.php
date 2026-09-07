@@ -12,6 +12,35 @@ use Studio\Gesso\Internal\OpenApiDocumentShapeNormalizer;
 final class OpenApiDocumentShapeNormalizerTest extends TestCase
 {
     #[Test]
+    public function body_examples_are_literal_but_structural_and_schema_nodes_stay_normalized(): void
+    {
+        $empty = new stdClass();
+        $body = ['content' => ['application/json' => [
+            'example' => ['object' => $empty, 'array' => [], '$ref' => 'literal-not-a-reference'],
+            'examples' => ['empty' => ['value' => $empty]],
+            'schema' => ['type' => 'object', 'properties' => ['example' => $empty]],
+        ]]];
+        $document = OpenApiDocumentShapeNormalizer::normalizeResolvedDocument([
+            'paths' => ['/body' => ['post' => ['requestBody' => $body, 'responses' => ['200' => $body]]]],
+            'components' => ['requestBodies' => ['Body' => $body], 'responses' => ['Body' => $body], 'examples' => ['empty' => ['value' => $empty]]],
+        ]);
+        foreach ([
+            $document['paths']['/body']['post']['requestBody'],
+            $document['paths']['/body']['post']['responses']['200'],
+            $document['components']['requestBodies']['Body'],
+            $document['components']['responses']['Body'],
+        ] as $normalized) {
+            $media = $normalized['content']['application/json'];
+            $this->assertSame($empty, $media['example']['object']);
+            $this->assertSame([], $media['example']['array']);
+            $this->assertSame('literal-not-a-reference', $media['example']['$ref']);
+            $this->assertSame($empty, $media['examples']['empty']['value']);
+            $this->assertSame([], $media['schema']['properties']['example']);
+        }
+        $this->assertSame($empty, $document['components']['examples']['empty']['value']);
+    }
+
+    #[Test]
     public function preserves_empty_object_security_container_for_validation(): void
     {
         $document = OpenApiDocumentShapeNormalizer::normalizeResolvedDocument([

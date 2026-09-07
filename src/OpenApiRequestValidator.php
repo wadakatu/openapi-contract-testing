@@ -19,6 +19,7 @@ use Studio\Gesso\Validation\Request\RequestBodyValidationResult;
 use Studio\Gesso\Validation\Request\RequestBodyValidator;
 use Studio\Gesso\Validation\Request\SecurityValidator;
 use Studio\Gesso\Validation\Support\ContentTypeMatcher;
+use Studio\Gesso\Validation\Support\DeferredBodyPresence;
 use Studio\Gesso\Validation\Support\DiscriminatorContext;
 use Studio\Gesso\Validation\Support\DiscriminatorEnforcement;
 use Studio\Gesso\Validation\Support\MalformedSpecNode;
@@ -177,6 +178,8 @@ final class OpenApiRequestValidator
      * @param array<array-key, mixed> $headers see {@see self::validate()}
      * @param mixed $requestBody see {@see self::validate()}
      * @param array<string, mixed> $cookies see {@see self::validate()}
+     * @param bool $bodyDecodeFailed the adapter has a parse/read error to append; do not validate its placeholder body
+     * @param null|DeferredBodyPresence $bodyPresence opaque transport metadata, kept outside the public decoded-value DTO
      */
     public function validateWithoutRecording(
         string $specName,
@@ -189,6 +192,8 @@ final class OpenApiRequestValidator
         array $cookies = [],
         ?int $responseStatusCode = null,
         ?string $rawQueryString = null,
+        bool $bodyDecodeFailed = false,
+        ?DeferredBodyPresence $bodyPresence = null,
     ): OpenApiValidationResult {
         // The `mixed` body parameter is kept for backward compatibility.
         // Framework adapters now pass a DecodedBody envelope directly; legacy
@@ -334,7 +339,12 @@ final class OpenApiRequestValidator
         // Carry the resolved root + enforce gate so the body validator can
         // lower `discriminator.mapping` into enforceable conditionals (#262).
         $discriminatorContext = new DiscriminatorContext($spec, DiscriminatorEnforcement::isEnabled());
-        $bodyResult = $this->validateBody($specName, $method, $matchedPath, $operation, $body, $contentType, $version, $discriminatorContext, $jsonSchemaDialect);
+        // A failed transport decode provides no value to validate. The adapter
+        // supplies its parse issue after aggregation; still collect siblings,
+        // and do not downgrade them on the strength of a documented 4xx.
+        $bodyResult = $bodyDecodeFailed
+            ? new RequestBodyValidationResult([], matchedContentType: self::thrownBodyContentType($operation, $contentType), bodyReadFailed: true)
+            : $this->validateBody($specName, $method, $matchedPath, $operation, $body, $contentType, $version, $discriminatorContext, $jsonSchemaDialect, $bodyPresence);
 
         // Category tags mirror the sub-validator that produced each message so
         // issues() can expose a structured view without touching the
@@ -495,7 +505,7 @@ final class OpenApiRequestValidator
      *
      * @param array<string, mixed> $operation
      */
-    private static function thrownBodyContentType(array $operation): ?string
+    private static function thrownBodyContentType(array $operation, ?string $contentType = null): ?string
     {
         $requestBody = $operation['requestBody'] ?? null;
         if (!is_array($requestBody) || !is_array($requestBody['content'] ?? null)) {
@@ -504,6 +514,10 @@ final class OpenApiRequestValidator
 
         /** @var array<string, mixed> $content */
         $content = $requestBody['content'];
+
+        if ($contentType !== null && !ContentTypeMatcher::isJsonOrUnspecified($contentType)) {
+            return ContentTypeMatcher::findContentTypeKey(ContentTypeMatcher::normalizeMediaType($contentType), $content);
+        }
 
         return ContentTypeMatcher::findJsonContentType($content);
     }
@@ -533,9 +547,10 @@ final class OpenApiRequestValidator
         OpenApiVersion $version,
         DiscriminatorContext $discriminatorContext,
         string $jsonSchemaDialect,
+        ?DeferredBodyPresence $bodyPresence = null,
     ): RequestBodyValidationResult {
         try {
-            return $this->bodyValidator->validate($specName, $method, $matchedPath, $operation, $body, $contentType, $version, $discriminatorContext, $jsonSchemaDialect);
+            return $this->bodyValidator->validate($specName, $method, $matchedPath, $operation, $body, $contentType, $version, $discriminatorContext, $jsonSchemaDialect, $bodyPresence);
         } catch (RuntimeException $e) {
             $previous = $e->getPrevious();
             $previousSuffix = $previous !== null

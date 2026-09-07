@@ -16,6 +16,14 @@ use function trim;
  */
 final class ContentTypeMatcher
 {
+    /** JSON decoding policy shared by request and response adapters. */
+    public static function isJsonOrUnspecified(?string $contentType): bool
+    {
+        $normalized = self::normalizeMediaType($contentType ?? '');
+
+        return $normalized === '' || self::isJsonContentType($normalized);
+    }
+
     /**
      * Find the first JSON-compatible content type key in the spec's
      * `content` map.

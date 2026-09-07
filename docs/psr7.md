@@ -130,9 +130,18 @@ A non-seekable JSON stream cannot be read and then restored through the
 [PSR-7 `StreamInterface`](https://github.com/php-fig/http-message/blob/2.0/src/StreamInterface.php).
 The adapter therefore returns a failure without reading it. Buffer or decorate
 the body with a seekable/caching stream before validation when the application
-uses a one-pass stream. Non-JSON bodies are not consumed; the core validator
-still checks their declared content type and reports schema enforcement as
-skipped where appropriate.
+uses a one-pass stream. This also applies when a form request needs raw bytes
+because no parsed fields are available. A read or JSON parse failure produces
+only a parse issue for that body, not a second empty-body or schema error.
+Other parameter/header/security violations remain visible, including when the
+request produced a documented 4xx response.
+
+Opaque (non-JSON, non-form) request presence is inspected only when the resolved
+contract requires it. Parsed fields/files or a known size need no read; an
+unknown-size seekable stream needs only `read(1)`, with its cursor restored.
+Optional, undeclared, and unmatched opaque bodies are not inspected. The core
+still checks the declared content type and reports unsupported schema
+enforcement as skipped.
 
 See the [runnable Guzzle example](https://github.com/studio-design/gesso/tree/main/examples/psr7) for a complete
 project.

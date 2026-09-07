@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Studio\Gesso\Fuzz;
 
+use const JSON_PRESERVE_ZERO_FRACTION;
 use const JSON_THROW_ON_ERROR;
 
 use InvalidArgumentException;
@@ -111,8 +112,8 @@ final readonly class ExploredCase
      * Convert a generated JSON object or array for array-typed HTTP helpers.
      *
      * Empty JSON objects become empty PHP arrays, so callers that must preserve
-     * the distinction between `{}` and `[]` should encode {@see self::$body}
-     * directly instead.
+     * the distinction between `{}` and `[]` must use {@see self::bodyAsJson()}
+     * for HTTP dispatch instead (including nested objects).
      *
      * @return null|array<array-key, mixed>
      *
@@ -133,6 +134,21 @@ final readonly class ExploredCase
         }
 
         return $body;
+    }
+
+    /**
+     * Encode the original generated value without changing JSON object/array
+     * types. Pass this string as the client's raw request content.
+     *
+     * A null value encodes to the literal `null`, not an absent body. Dispatchers
+     * sending a no-body operation or a missing-required-body probe must omit
+     * the body separately; this accessor does not infer presence from a value.
+     *
+     * @throws JsonException when the body cannot be encoded
+     */
+    public function bodyAsJson(): string
+    {
+        return json_encode($this->body, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION);
     }
 
     public function uri(string $prefix = ''): string

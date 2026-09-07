@@ -125,6 +125,7 @@ final class RequestBodyValidator
         OpenApiVersion $version,
         ?DiscriminatorContext $discriminatorContext = null,
         ?string $jsonSchemaDialect = null,
+        ?DeferredBodyPresence $bodyPresence = null,
     ): RequestBodyValidationResult {
         // OpenAPI: a missing requestBody means the operation accepts no body — treat as success.
         if (!isset($operation['requestBody'])) {
@@ -150,7 +151,7 @@ final class RequestBodyValidator
 
         if (!isset($requestBodySpec['content'])) {
             if ($required) {
-                return self::checkRequiredBody($requestBody, $specName, $method, $matchedPath) ?? new RequestBodyValidationResult([]);
+                return self::checkRequiredBody($requestBody, $specName, $method, $matchedPath, bodyPresence: $bodyPresence) ?? new RequestBodyValidationResult([]);
             }
 
             return new RequestBodyValidationResult([]);
@@ -169,7 +170,7 @@ final class RequestBodyValidator
                 $matchedKey = ContentTypeMatcher::findContentTypeKey($normalizedType, $content);
                 if ($matchedKey !== null) {
                     if ($required) {
-                        $presenceFailure = self::checkRequiredBody($requestBody, $specName, $method, $matchedPath, $matchedKey);
+                        $presenceFailure = self::checkRequiredBody($requestBody, $specName, $method, $matchedPath, $matchedKey, $bodyPresence);
                         if ($presenceFailure !== null) {
                             return $presenceFailure;
                         }
@@ -596,9 +597,10 @@ final class RequestBodyValidator
         string $method,
         string $matchedPath,
         ?string $matchedContentType = null,
+        ?DeferredBodyPresence $bodyPresence = null,
     ): ?RequestBodyValidationResult {
         try {
-            $present = $body->value instanceof DeferredBodyPresence ? $body->value->isPresent() : $body->present;
+            $present = $bodyPresence?->isPresent() ?? $body->present;
         } catch (RuntimeException $e) {
             // The stream may contain data. Do not also claim that it is empty.
             return new RequestBodyValidationResult([$e->getMessage()], matchedContentType: $matchedContentType, bodyReadFailed: true);

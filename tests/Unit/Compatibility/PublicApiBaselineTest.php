@@ -303,6 +303,10 @@ final class PublicApiBaselineTest extends TestCase
             'attributes' => [],
             'parameters' => [],
         ];
+        $expected[ExploredCase::class]['methods']['bodyAsJson'] = [
+            ...$expected[ExploredCase::class]['methods']['bodyAsArray'],
+            'return_type' => 'string',
+        ];
         $expected[ExploredCase::class]['methods']['uri'] = [
             'static' => false,
             'final' => false,

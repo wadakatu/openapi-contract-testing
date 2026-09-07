@@ -30,7 +30,7 @@ $this->call('POST', '/object', server: ['CONTENT_TYPE' => 'application/json'], c
 $client->request('POST', '/object', server: ['CONTENT_TYPE' => 'application/json'], content: '{}');
 ```
 
-For generated cases, send `json_encode($case->body, JSON_THROW_ON_ERROR)` as
+For generated request cases, send the additive `$case->bodyAsJson()` accessor as
 the raw content; see the [fuzzing dispatch examples](docs/fuzzing.md).
 Do not convert the body to an array or use `JSON_FORCE_OBJECT`: those can
 change nested empty objects or genuine arrays too. Literal JSON `null` is
@@ -44,7 +44,19 @@ size, or restores the cursor after inspecting a seekable stream of unknown
 size. Inspection is deferred until the resolved contract requires the body;
 optional, undeclared, or unmatched bodies are not read. If required presence
 cannot be determined safely, it reports only a body-read failure, never a
-second "empty body" error. Other parameter/security errors remain visible.
+second "empty body" error. The same rule applies to JSON and form decoding
+failures: only the parse/read error is reported for the body, and other
+parameter/security errors remain visible even with a documented 4xx response.
+
+Laravel, Symfony, and PSR-7 now share the JSON-or-unspecified decoding rule on
+both sides. A parameter-only header such as `; charset=utf-8` has no media type
+and follows the missing-type JSON fallback: malformed JSON fails on requests
+and responses alike.
+
+`gesso stubs` retains empty objects in media-type examples (including nested
+objects) and emits `{}` placeholders for object schemas instead of `[]`.
+Placeholders are still TODOs, not guaranteed schema-valid generated cases;
+required properties and other constraints may need application-specific values.
 
 `gesso doctor` now reports malformed request-body content nodes using the same
 structural rules as runtime validation. Previously clean doctor runs may now

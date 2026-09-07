@@ -24,6 +24,8 @@ final class HttpFoundationBodyTest extends TestCase
         yield 'JSON' => ['application/json'];
         yield 'suffix and parameters' => ['Application/Problem+Json; charset=utf-8'];
         yield 'absent header' => [''];
+        yield 'parameter-only header' => ['; charset=utf-8'];
+        yield 'whitespace header' => ['  '];
     }
 
     #[Test]
@@ -67,8 +69,24 @@ final class HttpFoundationBodyTest extends TestCase
             $this->assertSame([], $result->errors);
             $this->assertNotNull($result->skipReason, 'The parameter-only header must retain its pre-PR skipped outcome.');
         }
-        // Response extraction had no such fallback; preserve its policy.
-        $this->assertFalse(HttpFoundationBody::json('{}', '; charset=utf-8')->present);
+        $this->assertTrue(HttpFoundationBody::json('{}', '; charset=utf-8')->present);
+    }
+
+    #[Test]
+    public function parameter_only_header_uses_the_same_parse_policy_on_both_sides(): void
+    {
+        foreach (['request', 'response'] as $side) {
+            try {
+                if ($side === 'request') {
+                    HttpFoundationBody::request(Request::create('/', 'POST', content: '<a/>'), '; charset=utf-8');
+                } else {
+                    HttpFoundationBody::json('<a/>', '; charset=utf-8');
+                }
+                $this->fail($side . ' must report a JSON parse failure.');
+            } catch (JsonException $e) {
+                $this->assertNotSame('', $e->getMessage());
+            }
+        }
     }
 
     #[Test]

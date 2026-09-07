@@ -4,15 +4,12 @@ declare(strict_types=1);
 
 namespace Studio\Gesso\Symfony;
 
-use const JSON_THROW_ON_ERROR;
-
 use JsonException;
 use Studio\Gesso\DecodedBody;
 use Studio\Gesso\Validation\Support\ContentTypeMatcher;
 use Studio\Gesso\Validation\Support\FormBodyDecoder;
 use Symfony\Component\HttpFoundation\Request;
 
-use function json_decode;
 use function sprintf;
 use function strtolower;
 
@@ -28,14 +25,12 @@ final class HttpFoundationBody
     public static function request(Request $request, string $contentType): DecodedBody
     {
         $content = $request->getContent();
-        $normalizedType = ContentTypeMatcher::normalizeMediaType($contentType);
-
-        if ($normalizedType === '' || ContentTypeMatcher::isJsonContentType($normalizedType)) {
-            return self::decodeJson($content);
+        if (ContentTypeMatcher::isJsonOrUnspecified($contentType)) {
+            return DecodedBody::decodeJson($content);
         }
 
         $fields = HttpFoundationFormBody::fields($request);
-        if (FormBodyDecoder::isFormMediaType($normalizedType)) {
+        if (FormBodyDecoder::isFormMediaType(ContentTypeMatcher::normalizeMediaType($contentType))) {
             if ($fields !== null) {
                 return DecodedBody::present($fields);
             }
@@ -57,13 +52,11 @@ final class HttpFoundationBody
      */
     public static function json(string $content, string $contentType): DecodedBody
     {
-        if ($content === '' || ($contentType !== '' && !ContentTypeMatcher::isJsonContentType(
-            ContentTypeMatcher::normalizeMediaType($contentType),
-        ))) {
+        if (!ContentTypeMatcher::isJsonOrUnspecified($contentType)) {
             return DecodedBody::absent();
         }
 
-        return self::decodeJson($content);
+        return DecodedBody::decodeJson($content);
     }
 
     public static function parseFailure(JsonException $exception, string $contentType, string $subject): string
@@ -74,13 +67,5 @@ final class HttpFoundationBody
             $exception->getMessage(),
             $contentType === '' ? sprintf(' (no Content-Type header was present on the %s)', strtolower($subject)) : '',
         );
-    }
-
-    /** @throws JsonException */
-    private static function decodeJson(string $content): DecodedBody
-    {
-        return $content === ''
-            ? DecodedBody::absent()
-            : DecodedBody::fromJsonValue(json_decode($content, false, flags: JSON_THROW_ON_ERROR));
     }
 }

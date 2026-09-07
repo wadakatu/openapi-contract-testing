@@ -15,6 +15,7 @@ use GuzzleHttp\Psr7\ServerRequest;
 use GuzzleHttp\Psr7\Stream;
 use GuzzleHttp\Psr7\UploadedFile;
 use GuzzleHttp\Psr7\Utils;
+use LogicException;
 use Nyholm\Psr7\Request as NyholmRequest;
 use Nyholm\Psr7\Response as NyholmResponse;
 use Nyholm\Psr7\ServerRequest as NyholmServerRequest;
@@ -23,10 +24,12 @@ use PHPUnit\Framework\Attributes\DataProviderExternal;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\StreamInterface;
+use RuntimeException;
 use Studio\Gesso\Coverage\OpenApiCoverageTracker;
 use Studio\Gesso\Psr7\OpenApiPsr7Validator;
 use Studio\Gesso\Spec\OpenApiSpecLoader;
 use Studio\Gesso\Tests\Helpers\BodyBoundaryCases;
+use TypeError;
 
 use function array_filter;
 use function array_map;
@@ -653,6 +656,96 @@ final class OpenApiPsr7ValidatorTest extends TestCase
 
         $this->assertSame($valid, $result->isValid(), $result->errorMessage());
         $this->assertSame(0, $request->getBody()->tell());
+    }
+
+    #[Test]
+    public function required_json_and_form_stream_failures_never_claim_an_empty_body(): void
+    {
+        foreach (['application/json', 'application/x-www-form-urlencoded', 'multipart/form-data'] as $type) {
+            foreach (['not seekable', 'getContents', 'getSize'] as $failure) {
+                $stream = $this->createStub(StreamInterface::class);
+                $stream->method('isReadable')->willReturn(true);
+                $stream->method('isSeekable')->willReturn($failure !== 'not seekable');
+                if ($failure === 'getSize') {
+                    $stream->method('getSize')->willThrowException(new TypeError('size unavailable'));
+                } else {
+                    $stream->method('getSize')->willReturn(null);
+                }
+                $stream->method('getContents')->willThrowException(new RuntimeException('read exploded'));
+                $request = new Request('POST', '/required', ['Content-Type' => $type], $stream);
+                foreach ([null, 422] as $statusCode) {
+                    $result = (new OpenApiPsr7Validator('unreadable-body'))->validateRequest($request, $statusCode);
+                    $this->assertFalse($result->isValid());
+                    $this->assertCount(2, $result->issues(), $result->errorMessage());
+                    $this->assertSame(['request.body', 'request.parameter.header'], array_map(static fn($issue): string => $issue->category, $result->issues()));
+                    $this->assertSame('parse', $result->issues()[0]->keyword);
+                    $this->assertSame($type, $result->issues()[0]->contentType);
+                    $this->assertStringNotContainsString('empty', $result->errorMessage());
+                }
+            }
+        }
+    }
+
+    #[Test]
+    public function malformed_json_never_adds_a_schema_error_for_the_undecoded_value(): void
+    {
+        $validator = new OpenApiPsr7Validator('unreadable-body');
+        $request = new Request('POST', '/required', ['Content-Type' => 'application/json'], '{');
+        foreach ([$validator->validateRequest($request, 422), $validator->validateResponse($request, new Response(200, ['Content-Type' => 'application/json'], '{'))] as $result) {
+            $this->assertCount(2, $result->issues(), $result->errorMessage());
+            $this->assertSame('parse', $result->issues()[0]->keyword);
+            $this->assertNull($result->issues()[0]->instancePath);
+            $this->assertStringContainsString('parsed as JSON', $result->issues()[0]->message);
+        }
+    }
+
+    #[Test]
+    public function response_read_failures_report_only_parse_and_keep_header_violations(): void
+    {
+        foreach (['isSeekable', 'getSize', 'tell', 'rewind', 'getContents', 'seek'] as $failure) {
+            $stream = $this->createMock(StreamInterface::class);
+            $stream->method('isReadable')->willReturn(true);
+            $stream->method('isSeekable')->willReturn($failure !== 'isSeekable');
+            if ($failure !== 'getSize') {
+                $stream->method('getSize')->willReturn(null);
+            }
+            if ($failure !== 'isSeekable') {
+                $stream->expects($this->once())->method($failure)->willThrowException(new RuntimeException('stream exploded'));
+            } else {
+                $stream->expects($this->never())->method('getContents');
+            }
+            $result = (new OpenApiPsr7Validator('unreadable-body'))->validateResponseForOperation(
+                'POST',
+                '/required',
+                new Response(200, ['Content-Type' => 'application/json'], $stream),
+            );
+            $this->assertSame(['response.body', 'response.header'], array_map(static fn($issue): string => $issue->category, $result->issues()));
+            $this->assertSame('parse', $result->issues()[0]->keyword);
+            $this->assertStringNotContainsString('empty', $result->errorMessage());
+        }
+    }
+
+    #[Test]
+    public function opaque_probe_catches_third_party_throwables_and_only_reads_one_byte(): void
+    {
+        foreach ([null, new RuntimeException('read exploded'), new LogicException('read exploded'), new TypeError('read exploded')] as $failure) {
+            $stream = $this->createMock(StreamInterface::class);
+            $stream->method('getSize')->willReturn(null);
+            $stream->method('isReadable')->willReturn(true);
+            $stream->method('isSeekable')->willReturn(true);
+            $stream->method('tell')->willReturn(7);
+            $stream->expects($this->once())->method('seek')->with(7);
+            $stream->expects($this->never())->method('getContents');
+            $read = $stream->expects($this->once())->method('read')->with(1);
+            if ($failure === null) {
+                $read->willReturn('<');
+            } else {
+                $read->willThrowException($failure);
+            }
+            $result = (new OpenApiPsr7Validator('unreadable-body'))->validateRequest(new Request('POST', '/required', ['Content-Type' => 'application/xml'], $stream), 422);
+            $this->assertCount($failure === null ? 0 : 2, $result->issues(), $result->errorMessage());
+            $this->assertStringNotContainsString('empty', $result->errorMessage());
+        }
     }
 
     #[Test]

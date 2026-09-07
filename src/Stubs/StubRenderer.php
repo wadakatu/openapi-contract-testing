@@ -10,6 +10,7 @@ use const JSON_UNESCAPED_UNICODE;
 
 use InvalidArgumentException;
 use JsonException;
+use stdClass;
 use Studio\Gesso\Coverage\OpenApiCoverageTracker;
 use Studio\Gesso\Validation\Support\ContentTypeMatcher;
 
@@ -502,7 +503,7 @@ final class StubRenderer
             $lines[] = $tuple['has_example']
                 ? "// Taken from the spec's example; replace it with what your application returns."
                 : '// TODO: replace with the body your application returns.';
-            $lines[] = '$body = ' . $this->literal($tuple['has_example'] ? $tuple['example'] : []) . ';';
+            $lines[] = '$body = ' . $this->literal($tuple['example']) . ';';
             $lines[] = '';
             $body = '$body';
         }
@@ -839,7 +840,7 @@ final class StubRenderer
             ? "// Taken from the spec's example; replace it with what your application returns."
             : '// TODO: replace with the response your application returns.';
         $lines[] = '$response = new Response(';
-        $lines[] = '    ' . $this->literal($noContent ? '' : $this->encode($tuple['has_example'] ? $tuple['example'] : [])) . ',';
+        $lines[] = '    ' . $this->literal($noContent ? '' : $this->encode($tuple['example'])) . ',';
         $lines[] = '    ' . $tuple['status_code'] . ',';
         $lines[] = '    ' . ($noContent ? '[]' : $this->literal(['Content-Type' => $tuple['wire_content_type']], 1)) . ',';
         $lines[] = ');';
@@ -968,6 +969,9 @@ final class StubRenderer
      */
     private function literal(mixed $value, int $depth = 0): string
     {
+        if ($value instanceof stdClass) {
+            return '(object) ' . $this->literal((array) $value, $depth);
+        }
         if (!is_array($value)) {
             return is_string($value) || is_int($value) || is_float($value) || is_bool($value) || $value === null
                 ? var_export($value, true)

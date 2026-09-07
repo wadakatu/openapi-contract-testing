@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Studio\Gesso\Tests\Integration\Laravel;
 
-use const JSON_THROW_ON_ERROR;
-
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
@@ -23,7 +21,6 @@ use Studio\Gesso\Laravel\ValidatesOpenApiSchema;
 use Studio\Gesso\Spec\OpenApiSpecLoader;
 
 use function dirname;
-use function json_encode;
 
 class WholeSpecExplorationIntegrationTest extends TestCase
 {
@@ -69,7 +66,7 @@ class WholeSpecExplorationIntegrationTest extends TestCase
                         $case->uri(),
                         cookies: $case->cookies,
                         server: $this->transformHeadersToServerVars(['Content-Type' => 'application/json', ...$case->headers]),
-                        content: json_encode($case->body, JSON_THROW_ON_ERROR),
+                        content: $case->bodyAsJson(),
                     ),
                     default => throw new LogicException('Unexpected method in Laravel exploration example.'),
                 };
@@ -96,7 +93,7 @@ class WholeSpecExplorationIntegrationTest extends TestCase
 
         $this->exploreEndpoint('POST', $path, cases: 1, seed: 560)
             ->each(function (ExploredCase $case): void {
-                $wire = json_encode($case->body, JSON_THROW_ON_ERROR);
+                $wire = $case->bodyAsJson();
                 if ($case->matchedPath === '/object') {
                     $this->assertSame('{}', $wire);
                 }
