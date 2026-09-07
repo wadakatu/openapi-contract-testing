@@ -7,13 +7,14 @@ namespace Studio\Gesso\Coverage;
 use const ENT_QUOTES;
 use const ENT_SUBSTITUTE;
 
+use Studio\Gesso\Internal\CoverageTotals;
+
 use function array_keys;
 use function array_unique;
 use function htmlspecialchars;
 use function implode;
 use function preg_replace;
 use function rawurlencode;
-use function round;
 use function sprintf;
 use function strtolower;
 
@@ -43,6 +44,7 @@ use function strtolower;
  *           This renderer is not part of the public PHP API.
  *
  * @phpstan-import-type CoverageResult from OpenApiCoverageTracker
+ * @phpstan-import-type CoverageSums from CoverageTotals
  * @phpstan-import-type EndpointSummary from OpenApiCoverageTracker
  * @phpstan-import-type ResponseRow from OpenApiCoverageTracker
  * @phpstan-import-type SdkExerciseCoverageResult from SdkExerciseCoverageReportBuilder
@@ -69,7 +71,7 @@ final class HtmlCoverageRenderer
             return '';
         }
 
-        $totals = self::aggregate($results);
+        $totals = CoverageTotals::sum($results);
 
         $lines = [
             '<!DOCTYPE html>',
@@ -107,56 +109,12 @@ final class HtmlCoverageRenderer
     }
 
     /**
-     * @param array<string, CoverageResult> $results
-     *
-     * @return array{
-     *     endpointTotal: int,
-     *     endpointFullyCovered: int,
-     *     endpointPartial: int,
-     *     endpointUncovered: int,
-     *     endpointRequestOnly: int,
-     *     responseTotal: int,
-     *     responseCovered: int,
-     *     responseSkipped: int,
-     *     responseUncovered: int,
-     * }
-     */
-    private static function aggregate(array $results): array
-    {
-        $totals = [
-            'endpointTotal' => 0,
-            'endpointFullyCovered' => 0,
-            'endpointPartial' => 0,
-            'endpointUncovered' => 0,
-            'endpointRequestOnly' => 0,
-            'responseTotal' => 0,
-            'responseCovered' => 0,
-            'responseSkipped' => 0,
-            'responseUncovered' => 0,
-        ];
-
-        foreach ($results as $result) {
-            $totals['endpointTotal'] += $result['endpointTotal'];
-            $totals['endpointFullyCovered'] += $result['endpointFullyCovered'];
-            $totals['endpointPartial'] += $result['endpointPartial'];
-            $totals['endpointUncovered'] += $result['endpointUncovered'];
-            $totals['endpointRequestOnly'] += $result['endpointRequestOnly'];
-            $totals['responseTotal'] += $result['responseTotal'];
-            $totals['responseCovered'] += $result['responseCovered'];
-            $totals['responseSkipped'] += $result['responseSkipped'];
-            $totals['responseUncovered'] += $result['responseUncovered'];
-        }
-
-        return $totals;
-    }
-
-    /**
-     * @param array{endpointTotal: int, endpointFullyCovered: int, endpointPartial: int, endpointUncovered: int, endpointRequestOnly: int, responseTotal: int, responseCovered: int, responseSkipped: int, responseUncovered: int} $totals
+     * @param CoverageSums $totals
      */
     private static function renderAggregateSummary(array $totals): string
     {
-        $endpointPct = self::percent($totals['endpointFullyCovered'], $totals['endpointTotal']);
-        $responsePct = self::percent($totals['responseCovered'], $totals['responseTotal']);
+        $endpointPct = CoverageTotals::percentage($totals['endpointFullyCovered'], $totals['endpointTotal']);
+        $responsePct = CoverageTotals::percentage($totals['responseCovered'], $totals['responseTotal']);
 
         return sprintf(
             '<div class="aggregate">'
@@ -166,10 +124,10 @@ final class HtmlCoverageRenderer
             . '</div>',
             $totals['endpointFullyCovered'],
             $totals['endpointTotal'],
-            self::formatPercent($endpointPct),
+            $endpointPct,
             $totals['responseCovered'],
             $totals['responseTotal'],
-            self::formatPercent($responsePct),
+            $responsePct,
             $totals['responseSkipped'],
             $totals['responseUncovered'],
             $totals['endpointPartial'],
@@ -196,7 +154,7 @@ final class HtmlCoverageRenderer
             '<div class="aggregate sdk-aggregate"><p class="metric"><strong>%d / %d</strong> SDK responses exercised (%s%%)</p></div>',
             $exercised,
             $total,
-            self::formatPercent(self::percent($exercised, $total)),
+            CoverageTotals::percentage($exercised, $total),
         );
     }
 
@@ -217,16 +175,16 @@ final class HtmlCoverageRenderer
         ];
 
         if ($result !== null) {
-            $endpointPct = self::percent($result['endpointFullyCovered'], $result['endpointTotal']);
-            $responsePct = self::percent($result['responseCovered'], $result['responseTotal']);
+            $endpointPct = CoverageTotals::percentage($result['endpointFullyCovered'], $result['endpointTotal']);
+            $responsePct = CoverageTotals::percentage($result['responseCovered'], $result['responseTotal']);
             $lines[] = sprintf(
                 '<p class="spec-summary">endpoints: %d / %d fully covered (%s%%) — responses: %d / %d covered (%s%%)</p>',
                 $result['endpointFullyCovered'],
                 $result['endpointTotal'],
-                self::formatPercent($endpointPct),
+                $endpointPct,
                 $result['responseCovered'],
                 $result['responseTotal'],
-                self::formatPercent($responsePct),
+                $responsePct,
             );
 
             if ($result['endpoints'] !== []) {
@@ -264,7 +222,7 @@ final class HtmlCoverageRenderer
                 '<p class="sdk-summary">SDK responses: %d / %d exercised (%s%%) — %d unexercised</p>',
                 $result['responseExercised'],
                 $result['responseTotal'],
-                self::formatPercent(self::percent($result['responseExercised'], $result['responseTotal'])),
+                CoverageTotals::percentage($result['responseExercised'], $result['responseTotal']),
                 $result['responseUnexercised'],
             ),
             '<table class="sdk-responses">',
@@ -436,20 +394,6 @@ final class HtmlCoverageRenderer
 
             return $base . '-' . $seen[$base];
         };
-    }
-
-    private static function percent(int $covered, int $total): float
-    {
-        if ($total === 0) {
-            return 0.0;
-        }
-
-        return $covered / $total * 100.0;
-    }
-
-    private static function formatPercent(float $pct): string
-    {
-        return (string) round($pct, 1);
     }
 
     private static function stylesheet(): string
