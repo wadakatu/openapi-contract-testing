@@ -75,6 +75,14 @@ final class OpenApiPsr7ValidatorTest extends TestCase
         yield 'size limit' => [UPLOAD_ERR_INI_SIZE];
     }
 
+    /** @return iterable<string, array{string}> */
+    public static function provideResponse_read_failures_report_only_parse_and_keep_header_violationsCases(): iterable
+    {
+        foreach (['isSeekable', 'getSize', 'tell', 'rewind', 'getContents', 'seek'] as $failure) {
+            yield $failure => [$failure];
+        }
+    }
+
     #[Test]
     public function validates_a_multipart_server_request_from_its_parsed_parts(): void
     {
@@ -700,29 +708,41 @@ final class OpenApiPsr7ValidatorTest extends TestCase
     }
 
     #[Test]
-    public function response_read_failures_report_only_parse_and_keep_header_violations(): void
+    #[DataProvider('provideResponse_read_failures_report_only_parse_and_keep_header_violationsCases')]
+    public function response_read_failures_report_only_parse_and_keep_header_violations(string $failure): void
     {
-        foreach (['isSeekable', 'getSize', 'tell', 'rewind', 'getContents', 'seek'] as $failure) {
-            $stream = $this->createMock(StreamInterface::class);
-            $stream->method('isReadable')->willReturn(true);
-            $stream->method('isSeekable')->willReturn($failure !== 'isSeekable');
-            if ($failure !== 'getSize') {
-                $stream->method('getSize')->willReturn(null);
-            }
-            if ($failure !== 'isSeekable') {
-                $stream->expects($this->once())->method($failure)->willThrowException(new RuntimeException('stream exploded'));
-            } else {
-                $stream->expects($this->never())->method('getContents');
-            }
-            $result = (new OpenApiPsr7Validator('unreadable-body'))->validateResponseForOperation(
-                'POST',
-                '/required',
-                new Response(200, ['Content-Type' => 'application/json'], $stream),
-            );
-            $this->assertSame(['response.body', 'response.header'], array_map(static fn($issue): string => $issue->category, $result->issues()));
-            $this->assertSame('parse', $result->issues()[0]->keyword);
-            $this->assertStringNotContainsString('empty', $result->errorMessage());
+        $stream = $this->createMock(StreamInterface::class);
+        $stream->method('isReadable')->willReturn(true);
+        $stream->method('isSeekable')->willReturn($failure !== 'isSeekable');
+        if ($failure !== 'getSize') {
+            $stream->method('getSize')->willReturn(null);
         }
+        // PSR-7 1.x has no return types here: PHPUnit defaults to null,
+        // whereas 2.x defaults to 0 / ''. Explicit successful values ensure
+        // the cursor-restoration case actually reaches seek() in both versions.
+        if ($failure !== 'tell') {
+            $stream->method('tell')->willReturn(7);
+        }
+        if ($failure !== 'getContents' && $failure !== 'isSeekable') {
+            $stream->method('getContents')->willReturn('{}');
+        }
+        if ($failure !== 'isSeekable') {
+            $expectedFailure = $stream->expects($this->once())->method($failure);
+            if ($failure === 'seek') {
+                $expectedFailure->with(7);
+            }
+            $expectedFailure->willThrowException(new RuntimeException('stream exploded'));
+        } else {
+            $stream->expects($this->never())->method('getContents');
+        }
+        $result = (new OpenApiPsr7Validator('unreadable-body'))->validateResponseForOperation(
+            'POST',
+            '/required',
+            new Response(200, ['Content-Type' => 'application/json'], $stream),
+        );
+        $this->assertSame(['response.body', 'response.header'], array_map(static fn($issue): string => $issue->category, $result->issues()));
+        $this->assertSame('parse', $result->issues()[0]->keyword);
+        $this->assertStringNotContainsString('empty', $result->errorMessage());
     }
 
     #[Test]
