@@ -5,7 +5,9 @@ declare(strict_types=1);
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\AssertionFailedError;
 use Studio\Gesso\Coverage\OpenApiCoverageTracker;
+use Studio\Gesso\Tests\Helpers\BodyBoundaryCases;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 /*
 |--------------------------------------------------------------------------
@@ -22,6 +24,30 @@ use Symfony\Component\HttpFoundation\Request;
 | boundary is wired. This file proves the dispatch actually runs the
 | existing OpenApiResponseValidator / OpenApiRequestValidator pipeline.
 */
+
+it('preserves wire JSON boundaries in request expectations', function (string $path, string $wire, bool $valid): void {
+    $request = Request::create($path, 'POST', [], [], [], ['CONTENT_TYPE' => 'application/json'], $wire);
+    if (!$valid) {
+        $this->expectException(AssertionFailedError::class);
+    }
+    expect($request)->toMatchOpenApiRequestSchema(spec: 'body-boundaries', method: 'POST', path: $path);
+})->with(BodyBoundaryCases::json());
+
+it('preserves wire JSON boundaries in response expectations', function (string $path, string $wire, bool $valid): void {
+    $response = TestResponse::fromBaseResponse(new Response($wire, 200, ['Content-Type' => 'application/json']));
+    if (!$valid) {
+        $this->expectException(AssertionFailedError::class);
+    }
+    expect($response)->toMatchOpenApiResponseSchema(spec: 'body-boundaries', method: 'POST', path: $path);
+})->with(BodyBoundaryCases::json());
+
+it('preserves opaque request presence', function (string $wire, bool $valid): void {
+    $request = Request::create('/opaque', 'POST', [], [], [], ['CONTENT_TYPE' => 'application/xml'], $wire);
+    if (!$valid) {
+        $this->expectException(AssertionFailedError::class);
+    }
+    expect($request)->toMatchOpenApiRequestSchema(spec: 'body-boundaries', method: 'POST', path: '/opaque');
+})->with(BodyBoundaryCases::opaque());
 
 it('validates a matching response against the default spec', function (): void {
     $response = $this->get('/v1/pets');

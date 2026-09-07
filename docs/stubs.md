@@ -69,9 +69,13 @@ Everything the spec pins down is filled in:
 - **Required headers.** `in: header` parameters marked `required` are passed on
   the request.
 - **Bodies.** A request body or response `example` (or the first entry of
-  `examples`) becomes the literal in the stub. Without one you get `[]` under a
-  `// TODO` comment. The call shape follows the media type: JSON objects go
-  through the JSON helpers, `application/x-www-form-urlencoded` and
+  `examples`) becomes the literal in the stub, preserving `{}` versus `[]`
+  even when nested. Without one you get a type-shaped placeholder (`{}` for
+  objects, `[]` for arrays, a scalar for a declared scalar type) under a
+  `// TODO` comment. This is not schema-driven generation: required properties
+  and other constraints still need filling in. The call shape follows the media
+  type: array-compatible JSON uses JSON helpers; empty objects and scalars use
+  raw JSON. `application/x-www-form-urlencoded` and
   `multipart/form-data` are sent as request fields so the form decoders see a
   field map, and anything else goes out as a raw body. Whichever shape it
   takes, the declared media type is set explicitly — `Request::create()` would
@@ -81,7 +85,7 @@ Everything the spec pins down is filled in:
   for the file parts rather than hand-building a boundary.
 
   "JSON" here means what the validator means by it — `application/json` or a
-  `+json` suffix. `application/vnd.acme+json` uses the JSON helpers;
+  `+json` suffix. `application/vnd.acme+json` uses the same JSON dispatch rules;
   `application/notjson` does not. A spec key that is a *range* (`application/*`,
   `*/*`) is not something a client can put on the wire, so the stub sends a
   concrete type the range covers.
@@ -183,7 +187,7 @@ final class PostPetsTest extends TestCase
 
 Each adapter follows its own [quickstart](quickstarts/laravel.md) idiom, so
 generated code reads like the documented usage rather than a dialect of its own.
-A request body that Laravel's JSON helpers cannot carry — a scalar, or a
+A request body that Laravel's JSON helpers cannot carry — an empty object, a scalar, or a
 non-JSON media type — is sent through `call()` with an explicit `Content-Type`
 instead of `postJson()`.
 

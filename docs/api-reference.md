@@ -1,12 +1,38 @@
 # API Reference
 
 - [`OpenApiResponseValidator`](#openapiresponsevalidator)
+- [`DecodedBody`](#decodedbody)
 - [`OpenApiPsr7Validator`](#openapipsr7validator)
 - [`OpenApiResponseExplorer`](#openapiresponseexplorer)
 - [`OpenApiSpecExplorer`](#openapispecexplorer)
 - [`OpenApiContractChecks`](#openapicontractchecks)
 - [`OpenApiSpecLoader`](#openapispecloader)
 - [`OpenApiCoverageTracker`](#openapicoveragetracker)
+
+## `DecodedBody`
+
+Both core validators accept a `DecodedBody` as their body argument. Use it
+when decoding wire JSON yourself so `{}`, `[]`, literal `null`, and an absent
+body remain distinct:
+
+```php
+use Studio\Gesso\DecodedBody;
+
+$body = $rawBody === ''
+    ? DecodedBody::absent()
+    : DecodedBody::fromJsonValue(json_decode($rawBody, false, flags: JSON_THROW_ON_ERROR));
+```
+
+`fromJsonValue()` wraps an already-decoded value; it does not parse JSON text.
+Decode with `associative: false`, including nested objects. The validators then
+know that an empty array is genuinely `[]`, so it fails `type: object`.
+Framework and PSR-7 adapters do this for you; decoder provenance is internal.
+
+Existing bare PHP arrays and `DecodedBody::present($value)` retain their legacy
+behavior: a top-level empty array is interpreted as an empty object when the
+schema explicitly accepts objects. Bare `null` still means an absent body;
+`DecodedBody::present(null)` and `DecodedBody::fromJsonValue(null)` mean present
+literal null. `DecodedBody::fromLegacy()` preserves an existing envelope.
 
 ## `OpenApiResponseValidator`
 
@@ -208,7 +234,8 @@ instead of returning an empty collection.
 The collection is `Countable` and `IteratorAggregate`. Each readonly case
 exposes `body`, nullable `status` and `contentType`, `seed`, `caseIndex`, and
 `pinnedBranch`; `bodyAsObject()` supplies decoded JSON shapes to SDKs,
-`bodyAsArray()` supports array-typed consumers, and `replaySnippet()` renders a
+`bodyAsArray()` is a lossy compatibility view for array-typed consumers (empty
+objects become arrays, including nested ones), and `replaySnippet()` renders a
 focused reproduction. `assertRoundTrip()` first validates the SDK output
 against the exact converted response schema, then requires all generated object
 keys and values to survive recursively; JSON lists compare exactly.
@@ -244,6 +271,12 @@ operations. `authenticateUsing()`, `setUpUsing()`, `tearDownUsing()`, and
 `SpecExplorationSummary` exposes executed operation/case counts, the executed
 `ExploredOperation` rows (including their coverage keys), and a list of
 `ExplorationSkip` entries. See [schema-driven request fuzzing](fuzzing.md).
+
+Each `ExploredCase` exposes `bodyAsJson(): string` for raw HTTP content without
+losing empty or nested objects, arrays, scalars, or numeric object keys. Encoding
+errors throw `JsonException`; a null value encodes as `'null'`, so omit content
+separately for no-body operations or missing-body probes. `bodyAsArray()` remains
+a lossy compatibility view, not the recommended HTTP dispatch path.
 
 Call `negativeCases([4])` to switch a whole-spec plan to targeted invalid
 inputs and carry explicit expected response classes on each `ExploredCase`.

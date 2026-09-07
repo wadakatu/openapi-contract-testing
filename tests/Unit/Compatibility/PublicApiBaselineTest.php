@@ -19,6 +19,7 @@ use Studio\Gesso\Coverage\InvalidThresholdConfigurationException;
 use Studio\Gesso\Coverage\JsonCoverageRenderer;
 use Studio\Gesso\Coverage\JUnitCoverageRenderer;
 use Studio\Gesso\Coverage\MarkdownCoverageRenderer;
+use Studio\Gesso\DecodedBody;
 use Studio\Gesso\Exception\EnumBindingReason;
 use Studio\Gesso\Exception\InvalidOpenApiSpecReason;
 use Studio\Gesso\Fuzz\ContractCheck;
@@ -210,6 +211,26 @@ final class PublicApiBaselineTest extends TestCase
         $expected = json_decode($mappedV1Json, true, flags: JSON_THROW_ON_ERROR);
         /** @var array<string, array<string, mixed>> $actual */
         $actual = json_decode($v2Json, true, flags: JSON_THROW_ON_ERROR);
+        // #560: additive JSON provenance; existing body factories stay intact.
+        // See UPGRADING.md, "Unreleased: body-validation reliability".
+        $expected[DecodedBody::class]['methods']['fromJsonValue'] = [
+            'static' => true,
+            'final' => false,
+            'abstract' => false,
+            'returns_reference' => false,
+            'return_type' => 'self',
+            'attributes' => [],
+            'parameters' => [[
+                'name' => 'value',
+                'type' => 'mixed',
+                'optional' => false,
+                'variadic' => false,
+                'by_reference' => false,
+                'default' => ['unavailable' => true],
+                'attributes' => [],
+            ]],
+        ];
+        ksort($expected[DecodedBody::class]['methods']);
         unset(
             $expected[InvalidOpenApiSpecReason::class]['cases']['ExternalRef'],
             $expected[InvalidOpenApiSpecReason::class]['cases']['RemoteRefNotImplemented'],
@@ -281,6 +302,10 @@ final class PublicApiBaselineTest extends TestCase
             'return_type' => '?array',
             'attributes' => [],
             'parameters' => [],
+        ];
+        $expected[ExploredCase::class]['methods']['bodyAsJson'] = [
+            ...$expected[ExploredCase::class]['methods']['bodyAsArray'],
+            'return_type' => 'string',
         ];
         $expected[ExploredCase::class]['methods']['uri'] = [
             'static' => false,

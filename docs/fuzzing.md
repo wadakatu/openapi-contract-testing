@@ -9,7 +9,7 @@ workflow is inspired by
 contract; this package does not claim feature parity.
 
 ```php
-use PHPUnit\Framework\TestCase;
+use Tests\TestCase;
 use Studio\Gesso\Fuzz\ExploredCase;
 use Studio\Gesso\Laravel\ExploresOpenApiEndpoint;
 use Studio\Gesso\Laravel\ValidatesOpenApiSchema;
@@ -24,8 +24,15 @@ class CreatePetTest extends TestCase
     public function test_create_pet_contract(): void
     {
         $this->exploreEndpoint('POST', '/v1/pets', cases: 50, seed: 1)
-            ->each(fn (ExploredCase $case) => $this->postJson('/api/v1/pets', $case->bodyAsArray() ?? [])
-                ->assertSuccessful());
+            ->each(fn (ExploredCase $case) => $this->call(
+                'POST',
+                $case->uri('/api'),
+                cookies: $case->cookies,
+                server: $this->transformHeadersToServerVars([
+                    'Accept' => 'application/json', 'Content-Type' => 'application/json', ...$case->headers,
+                ]),
+                content: $case->bodyAsJson(),
+            )->assertSuccessful());
     }
 }
 ```
@@ -46,10 +53,16 @@ What you get per case (`Studio\Gesso\Fuzz\ExploredCase`):
 
 The collection is `Countable` and `IteratorAggregate`, so `foreach ($cases as $case)` works too if you prefer it over the fluent `each()` helper.
 
-Use `bodyAsArray()` with Laravel and other HTTP helpers that require an array
-payload. It recursively converts generated JSON objects, but an empty JSON
-object becomes an empty PHP array; encode `body` directly when the `{}` versus
-`[]` distinction matters. `uri($prefix)` substitutes and URL-encodes path
+Use `$case->bodyAsJson()` to encode the original value and send raw JSON, as above.
+`bodyAsArray()` is a lossy compatibility helper for array-only consumers:
+it recursively turns `{}` into `[]`, including nested objects. Feeding it to
+Laravel's `postJson()` or Symfony's `jsonRequest()` can turn a generated valid
+object case into an invalid array. Do not use `JSON_FORCE_OBJECT`, which would
+also change genuine JSON arrays. `bodyAsJson()` encodes null as literal JSON
+`null`; when an operation declares no body or a check omits a required body,
+omit the raw content instead. Encoding failures throw `JsonException`.
+
+`uri($prefix)` substitutes and URL-encodes path
 parameters, prepends an optional application prefix, and appends the generated
 query string.
 
@@ -138,7 +151,15 @@ class ApiContractTest extends TestCase
             ->authenticateUsing(fn (ExploredOperation $operation) => $this->actingAs($this->userFor($operation)))
             ->dispatchUsing(fn (ExploredCase $case) => match ($case->method) {
                 HttpMethod::GET => $this->get($case->uri('/api'), $case->headers),
-                HttpMethod::POST => $this->postJson($case->uri('/api'), $case->bodyAsArray() ?? [], $case->headers),
+                HttpMethod::POST => $this->call(
+                    'POST',
+                    $case->uri('/api'),
+                    cookies: $case->cookies,
+                    server: $this->transformHeadersToServerVars([
+                        'Accept' => 'application/json', 'Content-Type' => 'application/json', ...$case->headers,
+                    ]),
+                    content: $case->bodyAsJson(),
+                ),
                 default => throw new LogicException('Add the method to the test dispatcher.'),
             })
             ->assertResponses(); // ValidatesOpenApiSchema auto_assert validates each response
@@ -281,7 +302,15 @@ $this->exploreInvalidEndpoint(
     cases: 20,
     seed: 7,
 )->each(function (ExploredCase $case): void {
-    $response = $this->postJson('/api/v1/pets', $case->bodyAsArray() ?? []);
+    $response = $this->call(
+        'POST',
+        $case->uri('/api'),
+        cookies: $case->cookies,
+        server: $this->transformHeadersToServerVars([
+            'Accept' => 'application/json', 'Content-Type' => 'application/json', ...$case->headers,
+        ]),
+        content: $case->bodyAsJson(),
+    );
     self::assertContains(intdiv($response->getStatusCode(), 100), $case->expectedStatusClasses);
 });
 ```
@@ -389,7 +418,7 @@ that accepts any cookie value would pass. Forward them:
     $case->cookies,      // <- not optional for cookie-secured operations
     [],
     $this->transformHeadersToServerVars($case->headers),
-    $case->body !== null ? (string) json_encode($case->body) : null,
+    $case->body !== null ? $case->bodyAsJson() : null,
 )->getStatusCode())
 ```
 

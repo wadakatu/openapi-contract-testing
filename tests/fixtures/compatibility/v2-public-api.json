@@ -851,6 +851,27 @@
                 "attributes": [],
                 "parameters": []
             },
+            "fromJsonValue": {
+                "static": true,
+                "final": false,
+                "abstract": false,
+                "returns_reference": false,
+                "return_type": "self",
+                "attributes": [],
+                "parameters": [
+                    {
+                        "name": "value",
+                        "type": "mixed",
+                        "optional": false,
+                        "variadic": false,
+                        "by_reference": false,
+                        "default": {
+                            "unavailable": true
+                        },
+                        "attributes": []
+                    }
+                ]
+            },
             "fromLegacy": {
                 "static": true,
                 "final": false,
@@ -3137,6 +3158,15 @@
                 "abstract": false,
                 "returns_reference": false,
                 "return_type": "?array",
+                "attributes": [],
+                "parameters": []
+            },
+            "bodyAsJson": {
+                "static": false,
+                "final": false,
+                "abstract": false,
+                "returns_reference": false,
+                "return_type": "string",
                 "attributes": [],
                 "parameters": []
             },

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Studio\Gesso\Psr7;
 
-use const JSON_THROW_ON_ERROR;
 use const UPLOAD_ERR_OK;
 
 use JsonException;
@@ -23,8 +22,10 @@ use Studio\Gesso\OpenApiValidationResult;
 use Studio\Gesso\UploadedPart;
 use Studio\Gesso\Validation\Strict\StrictRequiredTracker;
 use Studio\Gesso\Validation\Support\ContentTypeMatcher;
+use Studio\Gesso\Validation\Support\DeferredBodyPresence;
 use Studio\Gesso\Validation\Support\FormBodyDecoder;
 use Studio\Gesso\ValidationIssue;
+use Throwable;
 
 use function array_is_list;
 use function array_key_exists;
@@ -32,8 +33,8 @@ use function array_merge;
 use function array_pad;
 use function array_values;
 use function explode;
+use function implode;
 use function is_array;
-use function json_decode;
 use function ltrim;
 use function rawurldecode;
 use function sprintf;
@@ -44,9 +45,9 @@ use function urldecode;
 /**
  * Framework-independent adapter for validating PSR-7 HTTP messages.
  *
- * Body streams are read only when they are seekable. The original cursor is
- * restored after decoding; a non-seekable stream produces a validation error
- * without being consumed.
+ * Body streams are read only when they are seekable, with the original cursor
+ * restored afterwards. Opaque request presence is inspected only when the
+ * resolved contract requires it, and known sizes need no reads at all.
  */
 final class OpenApiPsr7Validator
 {
@@ -115,6 +116,8 @@ final class OpenApiPsr7Validator
             $cookies,
             $responseStatusCode,
             $rawQueryString === '' ? null : $rawQueryString,
+            bodyDecodeFailed: $decoded['errors'] !== [],
+            bodyPresence: $decoded['presence'] ?? null,
         );
 
         $result = self::withAdapterErrors(
@@ -174,6 +177,7 @@ final class OpenApiPsr7Validator
             $decoded['body'],
             $contentType,
             $response->getHeaders(),
+            bodyDecodeFailed: $decoded['errors'] !== [],
         );
 
         $result = self::withAdapterErrors(
@@ -426,14 +430,47 @@ final class OpenApiPsr7Validator
      * multipart payload is left undecoded (the validator then reports a skip
      * rather than a silent pass).
      *
-     * @return array{body: DecodedBody, errors: list<string>}
+     * Opaque bodies carry a deferred presence probe, not a guessed absent
+     * value. Only the core's required-body check may invoke that probe.
+     *
+     * @return array{body: DecodedBody, errors: list<string>, presence?: DeferredBodyPresence}
      */
     private function decodeRequestBody(RequestInterface $request, ?string $contentType): array
     {
-        if ($contentType === null || !FormBodyDecoder::isFormMediaType(
-            ContentTypeMatcher::normalizeMediaType($contentType),
-        )) {
+        if (ContentTypeMatcher::isJsonOrUnspecified($contentType)) {
             return $this->decodeBody($request->getBody(), $contentType, 'Request');
+        }
+        $normalizedType = ContentTypeMatcher::normalizeMediaType($contentType ?? '');
+
+        if (!FormBodyDecoder::isFormMediaType($normalizedType)) {
+            return [
+                'body' => DecodedBody::absent(),
+                'presence' => new DeferredBodyPresence(function () use ($request): bool {
+                    try {
+                        if ($request instanceof ServerRequestInterface) {
+                            $parsed = $request->getParsedBody();
+                            // Objects establish opaque presence too. Form decoding
+                            // below deliberately retains its array-only field-map policy.
+                            if (($parsed !== null && $parsed !== []) || $request->getUploadedFiles() !== []) {
+                                return true;
+                            }
+                        }
+                        $size = $request->getBody()->getSize();
+                        if ($size !== null) {
+                            return $size > 0;
+                        }
+                        $read = $this->readBody($request->getBody(), 'Request', presenceOnly: true);
+                        if ($read['errors'] !== []) {
+                            throw new RuntimeException(implode(' ', $read['errors']));
+                        }
+
+                        return $read['content'] !== null && $read['content'] !== '';
+                    } catch (Throwable $e) {
+                        throw new RuntimeException($e->getMessage(), previous: $e);
+                    }
+                }),
+                'errors' => [],
+            ];
         }
 
         if ($request instanceof ServerRequestInterface) {
@@ -477,34 +514,34 @@ final class OpenApiPsr7Validator
      *
      * @return array{content: null|string, errors: list<string>}
      */
-    private function readBody(StreamInterface $stream, string $subject): array
+    private function readBody(StreamInterface $stream, string $subject, bool $presenceOnly = false): array
     {
-        if ($stream->getSize() === 0) {
-            return ['content' => null, 'errors' => []];
-        }
-
-        if (!$stream->isReadable()) {
-            return self::readFailure($subject, 'body stream is not readable');
-        }
-
-        if (!$stream->isSeekable()) {
-            return self::readFailure(
-                $subject,
-                'body stream is not seekable; validation was refused to avoid consuming caller state',
-            );
-        }
-
         try {
+            if ($stream->getSize() === 0) {
+                return ['content' => null, 'errors' => []];
+            }
+
+            if (!$stream->isReadable()) {
+                return self::readFailure($subject, 'body stream is not readable');
+            }
+
+            if (!$stream->isSeekable()) {
+                return self::readFailure(
+                    $subject,
+                    'body stream is not seekable; validation was refused to avoid consuming caller state',
+                );
+            }
+
             $position = $stream->tell();
             $stream->rewind();
-            $content = $stream->getContents();
-        } catch (RuntimeException $e) {
+            $content = $presenceOnly ? $stream->read(1) : $stream->getContents();
+        } catch (Throwable $e) {
             return self::readFailure($subject, 'body stream could not be read: ' . $e->getMessage());
         } finally {
             if (isset($position)) {
                 try {
                     $stream->seek($position);
-                } catch (RuntimeException $e) {
+                } catch (Throwable $e) {
                     return self::readFailure($subject, 'body stream cursor could not be restored: ' . $e->getMessage());
                 }
             }
@@ -521,9 +558,7 @@ final class OpenApiPsr7Validator
         ?string $contentType,
         string $subject,
     ): array {
-        if ($contentType !== null && !ContentTypeMatcher::isJsonContentType(
-            ContentTypeMatcher::normalizeMediaType($contentType),
-        )) {
+        if (!ContentTypeMatcher::isJsonOrUnspecified($contentType)) {
             return ['body' => DecodedBody::absent(), 'errors' => []];
         }
 
@@ -540,10 +575,7 @@ final class OpenApiPsr7Validator
         }
 
         try {
-            /** @var mixed $value */
-            $value = json_decode($content, false, flags: JSON_THROW_ON_ERROR);
-
-            return ['body' => DecodedBody::present($value), 'errors' => []];
+            return ['body' => DecodedBody::decodeJson($content), 'errors' => []];
         } catch (JsonException $e) {
             return [
                 'body' => DecodedBody::present($content),

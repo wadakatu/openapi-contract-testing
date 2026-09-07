@@ -12,19 +12,28 @@ use GuzzleHttp\Psr7\NoSeekStream;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Psr7\ServerRequest;
+use GuzzleHttp\Psr7\Stream;
 use GuzzleHttp\Psr7\UploadedFile;
 use GuzzleHttp\Psr7\Utils;
+use LogicException;
 use Nyholm\Psr7\Request as NyholmRequest;
 use Nyholm\Psr7\Response as NyholmResponse;
 use Nyholm\Psr7\ServerRequest as NyholmServerRequest;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\DataProviderExternal;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Message\StreamInterface;
+use RuntimeException;
 use Studio\Gesso\Coverage\OpenApiCoverageTracker;
 use Studio\Gesso\Psr7\OpenApiPsr7Validator;
 use Studio\Gesso\Spec\OpenApiSpecLoader;
+use Studio\Gesso\Tests\Helpers\BodyBoundaryCases;
+use TypeError;
 
+use function array_filter;
 use function array_map;
+use function array_values;
 use function implode;
 
 final class OpenApiPsr7ValidatorTest extends TestCase
@@ -64,6 +73,14 @@ final class OpenApiPsr7ValidatorTest extends TestCase
     {
         yield 'no file sent' => [UPLOAD_ERR_NO_FILE];
         yield 'size limit' => [UPLOAD_ERR_INI_SIZE];
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function provideResponse_read_failures_report_only_parse_and_keep_header_violationsCases(): iterable
+    {
+        foreach (['isSeekable', 'getSize', 'tell', 'rewind', 'getContents', 'seek'] as $failure) {
+            yield $failure => [$failure];
+        }
     }
 
     #[Test]
@@ -619,6 +636,219 @@ final class OpenApiPsr7ValidatorTest extends TestCase
         $response = new Response(200, ['Content-Type' => 'application/json'], '{"reasoning":{}}');
 
         $result = $validator->validateExchange($request, $response);
+
+        $this->assertTrue($result->isValid(), $result->errorMessage());
+    }
+
+    #[Test]
+    #[DataProviderExternal(BodyBoundaryCases::class, 'json')]
+    public function request_and_response_preserve_wire_body_boundaries(string $path, string $wire, bool $valid): void
+    {
+        $validator = new OpenApiPsr7Validator('body-boundaries');
+        $request = new Request('POST', 'https://example.test' . $path, ['Content-Type' => 'application/json'], $wire);
+        $response = new Response(200, ['Content-Type' => 'application/json'], $wire);
+
+        $requestResult = $validator->validateRequest($request);
+        $responseResult = $validator->validateResponse($request, $response);
+
+        $this->assertSame($valid, $requestResult->isValid(), $requestResult->errorMessage());
+        $this->assertSame($valid, $responseResult->isValid(), $responseResult->errorMessage());
+    }
+
+    #[Test]
+    #[DataProviderExternal(BodyBoundaryCases::class, 'opaque')]
+    public function opaque_request_preserves_body_presence(string $wire, bool $valid): void
+    {
+        $request = new Request('POST', 'https://example.test/opaque', ['Content-Type' => 'application/xml'], $wire);
+        $result = (new OpenApiPsr7Validator('body-boundaries'))->validateRequest($request);
+
+        $this->assertSame($valid, $result->isValid(), $result->errorMessage());
+        $this->assertSame(0, $request->getBody()->tell());
+    }
+
+    #[Test]
+    public function required_json_and_form_stream_failures_never_claim_an_empty_body(): void
+    {
+        foreach (['application/json', 'application/x-www-form-urlencoded', 'multipart/form-data'] as $type) {
+            foreach (['not seekable', 'getContents', 'getSize'] as $failure) {
+                $stream = $this->createStub(StreamInterface::class);
+                $stream->method('isReadable')->willReturn(true);
+                $stream->method('isSeekable')->willReturn($failure !== 'not seekable');
+                if ($failure === 'getSize') {
+                    $stream->method('getSize')->willThrowException(new TypeError('size unavailable'));
+                } else {
+                    $stream->method('getSize')->willReturn(null);
+                }
+                $stream->method('getContents')->willThrowException(new RuntimeException('read exploded'));
+                $request = new Request('POST', '/required', ['Content-Type' => $type], $stream);
+                foreach ([null, 422] as $statusCode) {
+                    $result = (new OpenApiPsr7Validator('unreadable-body'))->validateRequest($request, $statusCode);
+                    $this->assertFalse($result->isValid());
+                    $this->assertCount(2, $result->issues(), $result->errorMessage());
+                    $this->assertSame(['request.body', 'request.parameter.header'], array_map(static fn($issue): string => $issue->category, $result->issues()));
+                    $this->assertSame('parse', $result->issues()[0]->keyword);
+                    $this->assertSame($type, $result->issues()[0]->contentType);
+                    $this->assertStringNotContainsString('empty', $result->errorMessage());
+                }
+            }
+        }
+    }
+
+    #[Test]
+    public function malformed_json_never_adds_a_schema_error_for_the_undecoded_value(): void
+    {
+        $validator = new OpenApiPsr7Validator('unreadable-body');
+        $request = new Request('POST', '/required', ['Content-Type' => 'application/json'], '{');
+        foreach ([$validator->validateRequest($request, 422), $validator->validateResponse($request, new Response(200, ['Content-Type' => 'application/json'], '{'))] as $result) {
+            $this->assertCount(2, $result->issues(), $result->errorMessage());
+            $this->assertSame('parse', $result->issues()[0]->keyword);
+            $this->assertNull($result->issues()[0]->instancePath);
+            $this->assertStringContainsString('parsed as JSON', $result->issues()[0]->message);
+        }
+    }
+
+    #[Test]
+    #[DataProvider('provideResponse_read_failures_report_only_parse_and_keep_header_violationsCases')]
+    public function response_read_failures_report_only_parse_and_keep_header_violations(string $failure): void
+    {
+        $stream = $this->createMock(StreamInterface::class);
+        $stream->method('isReadable')->willReturn(true);
+        $stream->method('isSeekable')->willReturn($failure !== 'isSeekable');
+        if ($failure !== 'getSize') {
+            $stream->method('getSize')->willReturn(null);
+        }
+        // PSR-7 1.x has no return types here: PHPUnit defaults to null,
+        // whereas 2.x defaults to 0 / ''. Explicit successful values ensure
+        // the cursor-restoration case actually reaches seek() in both versions.
+        if ($failure !== 'tell') {
+            $stream->method('tell')->willReturn(7);
+        }
+        if ($failure !== 'getContents' && $failure !== 'isSeekable') {
+            $stream->method('getContents')->willReturn('{}');
+        }
+        if ($failure !== 'isSeekable') {
+            $expectedFailure = $stream->expects($this->once())->method($failure);
+            if ($failure === 'seek') {
+                $expectedFailure->with(7);
+            }
+            $expectedFailure->willThrowException(new RuntimeException('stream exploded'));
+        } else {
+            $stream->expects($this->never())->method('getContents');
+        }
+        $result = (new OpenApiPsr7Validator('unreadable-body'))->validateResponseForOperation(
+            'POST',
+            '/required',
+            new Response(200, ['Content-Type' => 'application/json'], $stream),
+        );
+        $this->assertSame(['response.body', 'response.header'], array_map(static fn($issue): string => $issue->category, $result->issues()));
+        $this->assertSame('parse', $result->issues()[0]->keyword);
+        $this->assertStringNotContainsString('empty', $result->errorMessage());
+    }
+
+    #[Test]
+    public function opaque_probe_catches_third_party_throwables_and_only_reads_one_byte(): void
+    {
+        foreach ([null, new RuntimeException('read exploded'), new LogicException('read exploded'), new TypeError('read exploded')] as $failure) {
+            $stream = $this->createMock(StreamInterface::class);
+            $stream->method('getSize')->willReturn(null);
+            $stream->method('isReadable')->willReturn(true);
+            $stream->method('isSeekable')->willReturn(true);
+            $stream->method('tell')->willReturn(7);
+            $stream->expects($this->once())->method('seek')->with(7);
+            $stream->expects($this->never())->method('getContents');
+            $read = $stream->expects($this->once())->method('read')->with(1);
+            if ($failure === null) {
+                $read->willReturn('<');
+            } else {
+                $read->willThrowException($failure);
+            }
+            $result = (new OpenApiPsr7Validator('unreadable-body'))->validateRequest(new Request('POST', '/required', ['Content-Type' => 'application/xml'], $stream), 422);
+            $this->assertCount($failure === null ? 0 : 2, $result->issues(), $result->errorMessage());
+            $this->assertStringNotContainsString('empty', $result->errorMessage());
+        }
+    }
+
+    #[Test]
+    public function opaque_known_size_non_seekable_request_does_not_consume_the_stream(): void
+    {
+        $stream = new NoSeekStream(Utils::streamFor('<a/>'));
+        $stream->read(1);
+        $request = new Request('POST', '/opaque', ['Content-Type' => 'application/xml'], $stream);
+        $result = (new OpenApiPsr7Validator('body-boundaries'))->validateRequest($request);
+
+        $this->assertTrue($result->isValid(), $result->errorMessage());
+        $this->assertSame(1, $stream->tell());
+        $this->assertSame('a/>', $stream->getContents());
+    }
+
+    #[Test]
+    public function opaque_unknown_size_request_restores_the_cursor_or_fails_without_consuming(): void
+    {
+        $stream = new class (Utils::streamFor('<a/>')->detach()) extends Stream {
+            public function getSize(): ?int
+            {
+                return null;
+            }
+        };
+        $stream->seek(2);
+        $validator = new OpenApiPsr7Validator('body-boundaries');
+        $request = new Request('POST', '/opaque', ['Content-Type' => 'application/xml'], $stream);
+        $result = $validator->validateRequest($request);
+        $this->assertTrue($result->isValid(), $result->errorMessage());
+        $this->assertSame(2, $stream->tell());
+
+        $result = $validator->validateRequest($request->withBody(new NoSeekStream($stream)));
+        $this->assertFalse($result->isValid());
+        $this->assertStringContainsString('not seekable', $result->errorMessage());
+        $this->assertSame(2, $stream->tell());
+        $this->assertCount(1, $result->errors(), 'Unknown presence must not also be reported as empty.');
+        $this->assertSame('parse', $result->issues()[0]->keyword);
+        $this->assertNull($result->issues()[0]->instancePath);
+    }
+
+    #[Test]
+    public function opaque_stream_is_not_inspected_when_presence_is_not_required(): void
+    {
+        foreach (['/optional-opaque', '/undeclared-opaque', '/missing'] as $path) {
+            $stream = $this->createMock(StreamInterface::class);
+            $stream->expects($this->never())->method('getSize');
+            $stream->expects($this->never())->method('getContents');
+            $stream->expects($this->never())->method('read');
+            $request = new Request('POST', $path, ['Content-Type' => 'application/xml'], $stream);
+            $result = (new OpenApiPsr7Validator('body-boundaries'))->validateRequest($request);
+
+            $this->assertSame($path !== '/missing', $result->isValid(), $result->errorMessage());
+            $this->assertSame($path === '/optional-opaque', $result->isSkipped());
+        }
+    }
+
+    #[Test]
+    public function unreadable_opaque_body_reports_parse_only_and_keeps_sibling_violations(): void
+    {
+        foreach (['/opaque', '/opaque-with-header', '/opaque-without-content'] as $path) {
+            $stream = $this->createMock(StreamInterface::class);
+            $stream->method('getSize')->willReturn(null);
+            $stream->method('isReadable')->willReturn(false);
+            $stream->expects($this->never())->method('getContents');
+            $request = new Request('POST', $path, ['Content-Type' => 'application/xml'], $stream);
+            $result = (new OpenApiPsr7Validator('body-boundaries'))->validateRequest($request, responseStatusCode: 422);
+
+            $this->assertFalse($result->isValid(), 'A documented 422 cannot excuse unreadable input.');
+            $this->assertCount($path === '/opaque-with-header' ? 2 : 1, $result->issues());
+            $bodyIssues = array_values(array_filter($result->issues(), static fn($issue): bool => $issue->category === 'request.body'));
+            $this->assertCount(1, $bodyIssues);
+            $this->assertSame('parse', $bodyIssues[0]->keyword);
+            $this->assertStringContainsString('not readable', $bodyIssues[0]->message);
+            $this->assertNull($bodyIssues[0]->instancePath);
+        }
+    }
+
+    #[Test]
+    public function opaque_server_request_preserves_parsed_body_presence(): void
+    {
+        $request = (new ServerRequest('POST', '/opaque', ['Content-Type' => 'application/xml']))
+            ->withParsedBody(['value' => 'parsed']);
+        $result = (new OpenApiPsr7Validator('body-boundaries'))->validateRequest($request);
 
         $this->assertTrue($result->isValid(), $result->errorMessage());
     }

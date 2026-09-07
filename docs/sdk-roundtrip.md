@@ -224,7 +224,7 @@ effective seed is stored on every case and included in `replaySnippet()`.
 |---|---|
 | `body` | Raw generated PHP value |
 | `bodyAsObject()` | JSON round-trip with objects decoded as `stdClass`; arrays and scalars retain their JSON shape |
-| `bodyAsArray()` | Associative decoded form for object/array bodies; scalar bodies throw |
+| `bodyAsArray()` | Lossy associative compatibility view: empty objects become arrays, even when nested; scalar bodies throw. Prefer `bodyAsObject()` for SDK input |
 | `status`, `contentType` | Selected wire status and declared media-type key; both are `null` for named components |
 | `seed`, `caseIndex` | Deterministic replay identity |
 | `pinnedBranch` | Target JSON Pointer plus zero-based branch, for example `/properties/aud/oneOf@0`; `null` for an extra case |

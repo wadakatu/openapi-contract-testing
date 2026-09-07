@@ -35,6 +35,7 @@ use Studio\Gesso\Spec\OpenApiSchemaDialect;
 use Studio\Gesso\Spec\OpenApiSpecLoader;
 use Studio\Gesso\Validation\Request\SchemeKind;
 use Studio\Gesso\Validation\Request\SecurityValidator;
+use Studio\Gesso\Validation\Support\BodyStructureInspector;
 use Studio\Gesso\Validation\Support\DiscriminatorContext;
 use Studio\Gesso\Validation\Support\MalformedSpecNode;
 use Symfony\Component\HttpClient\Psr18Client;
@@ -433,6 +434,9 @@ final class DoctorCommand
                     continue;
                 }
                 $operationCount++;
+                foreach (BodyStructureInspector::request($operation) as $defect) {
+                    $issues[] = $this->malformedStructureIssue($label, $declared['method'], (string) $path, $defect['location'], $defect['node']);
+                }
                 if ($optional && !array_key_exists('responses', $operation)) {
                     continue;
                 }
@@ -500,28 +504,9 @@ final class DoctorCommand
         }
 
         $valid = true;
-        foreach ($content as $mediaType => $mediaTypeSpec) {
-            $mediaLocation = sprintf('%s.content["%s"]', $location, (string) $mediaType);
-            if (MalformedSpecNode::isMalformed($mediaTypeSpec)) {
-                $issues[] = $this->malformedStructureIssue($label, $method, $path, $mediaLocation, $mediaTypeSpec);
-                $valid = false;
-
-                continue;
-            }
-
-            foreach (['schema', 'itemSchema'] as $schemaKey) {
-                if (!array_key_exists($schemaKey, $mediaTypeSpec) || !MalformedSpecNode::isMalformed($mediaTypeSpec[$schemaKey])) {
-                    continue;
-                }
-                $issues[] = $this->malformedStructureIssue(
-                    $label,
-                    $method,
-                    $path,
-                    $mediaLocation . '.' . $schemaKey,
-                    $mediaTypeSpec[$schemaKey],
-                );
-                $valid = false;
-            }
+        foreach (BodyStructureInspector::content($content, $location . '.content') as $defect) {
+            $issues[] = $this->malformedStructureIssue($label, $method, $path, $defect['location'], $defect['node']);
+            $valid = false;
         }
 
         return $valid;

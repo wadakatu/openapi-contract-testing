@@ -10,16 +10,22 @@ use const PHP_BINARY;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use stdClass;
 use Studio\Gesso\Cli\StubsCommand;
 use Studio\Gesso\OpenApiRequestValidator;
 use Studio\Gesso\OpenApiResponseValidator;
 use Studio\Gesso\Spec\OpenApiSpecLoader;
+use Studio\Gesso\Stubs\StubGenerator;
 use Studio\Gesso\Stubs\StubRenderer;
+use Studio\Gesso\Symfony\HttpFoundationBody;
 use Studio\Gesso\Validation\Strict\StrictRequiredTracker;
 use Symfony\Component\HttpFoundation\Request as SymfonyRequest;
 
+use function array_filter;
 use function array_map;
+use function array_values;
 use function count;
+use function dirname;
 use function escapeshellarg;
 use function exec;
 use function explode;
@@ -38,6 +44,7 @@ use function substr_count;
 use function sys_get_temp_dir;
 use function uniqid;
 use function unlink;
+use function var_export;
 
 class StubsCommandTest extends TestCase
 {
@@ -1305,6 +1312,63 @@ class StubsCommandTest extends TestCase
         $code = (string) file_get_contents($this->workDir . '/out/GetPetsTest.php');
         $this->assertStringContainsString('The spec declares `4XX`; this stub exercises 400.', $code);
         $this->assertStringContainsString('            400,', $code);
+    }
+
+    #[Test]
+    public function object_and_array_stub_bodies_retain_their_wire_shapes(): void
+    {
+        file_put_contents($this->workDir . '/literal-examples.json', '{"Empty":{"value":{}}}');
+        foreach ([
+            'object-placeholder' => ['schema' => ['type' => 'object']],
+            'array-placeholder' => ['schema' => ['type' => 'array']],
+            'object-example' => ['schema' => ['type' => 'object'], 'example' => new stdClass()],
+            'array-example' => ['schema' => ['type' => 'array'], 'example' => []],
+            'nested-example' => ['schema' => ['type' => 'object'], 'example' => ['nested' => new stdClass(), 'list' => [new stdClass()]]],
+            'named-example' => ['schema' => ['type' => 'object'], 'examples' => ['empty' => ['value' => new stdClass()]]],
+            'referenced-example' => ['schema' => ['type' => 'object'], 'examples' => ['empty' => ['$ref' => './literal-examples.json#/Empty']]],
+        ] as $name => $media) {
+            $spec = $this->writeInlineSpec($name, ['/body' => ['post' => [
+                'requestBody' => ['required' => true, 'content' => ['application/json' => $media]],
+                'responses' => ['200' => ['content' => ['application/json' => $media]]],
+            ]]]);
+            foreach (StubRenderer::ADAPTERS as $adapter) {
+                $output = $this->workDir . '/' . $name . '-' . $adapter;
+                $this->assertSame(0, $this->command()->run(StubsCommand::parseArgv([
+                    '--spec=' . $spec, '--adapter=' . $adapter, '--output=' . $output,
+                ])), $this->stderr);
+                $files = array_values(array_filter(scandir($output) ?: [], static fn(string $file): bool => str_contains($file, '.php')));
+                $this->assertCount(1, $files);
+                $this->assertSame(0, $this->lint($output . '/' . $files[0]));
+                $code = (string) file_get_contents($output . '/' . $files[0]);
+                if ($name === 'object-placeholder' || $name === 'object-example' || $name === 'named-example') {
+                    $this->assertStringContainsString($adapter === 'phpunit' ? '(object) []' : "'{}'", $code);
+                }
+                if ($adapter === 'phpunit' || $adapter === 'symfony') {
+                    // Execute the emitted test, not a reimplementation of its
+                    // literals. No application is needed for these adapters.
+                    file_put_contents($output . '/' . $files[0], preg_replace('/^.*\$this->markTestIncomplete\(.*\);\R/m', '', $code));
+                    $bootstrap = $this->workDir . '/bootstrap.php';
+                    file_put_contents($bootstrap, '<?php require ' . var_export(dirname(__DIR__, 3) . '/vendor/autoload.php', true)
+                        . '; \\Studio\\Gesso\\Spec\\OpenApiSpecLoader::configure(' . var_export($this->workDir, true) . ');');
+                    $lines = [];
+                    $status = 0;
+                    exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(dirname(__DIR__, 3) . '/vendor/bin/phpunit')
+                        . ' --no-configuration --no-progress --bootstrap ' . escapeshellarg($bootstrap)
+                        . ' ' . escapeshellarg($output . '/' . $files[0]) . ' 2>&1', $lines, $status);
+                    $this->assertSame(0, $status, implode("\n", $lines));
+                }
+            }
+            OpenApiSpecLoader::reset();
+            OpenApiSpecLoader::configure($this->workDir);
+            $plans = (new StubGenerator())->plan(OpenApiSpecLoader::load($name), null);
+            $wire = json_encode($plans[0]['request_candidates'][0]['body'], JSON_THROW_ON_ERROR);
+            $body = HttpFoundationBody::json($wire, 'application/json');
+            $request = (new OpenApiRequestValidator())->validate($name, 'POST', '/body', [], [], $body, 'application/json');
+            $this->assertTrue($request->isValid(), $request->errorMessage());
+            if ($name === 'nested-example') {
+                $this->assertSame('{"nested":{},"list":[{}]}', $wire);
+            }
+        }
     }
 
     #[Test]

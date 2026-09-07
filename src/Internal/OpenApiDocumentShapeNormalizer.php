@@ -14,8 +14,9 @@ use function is_string;
 
 /**
  * Restores PHP's historical array representation after parsing object maps,
- * while retaining the one empty-object distinction required by OpenAPI:
- * an empty Security Requirement Object means that anonymous access is allowed.
+ * while retaining empty Security Requirement Objects and body example values.
+ * Examples are literal payloads: normalizing their `{}` to `[]` changes the
+ * request/response that scaffolding sends.
  *
  * This must run after reference resolution. An external document may contain
  * only a Schema Object, so its decoder cannot know whether a key named
@@ -59,6 +60,8 @@ final class OpenApiDocumentShapeNormalizer
             $normalized[$key] = match ($key) {
                 'pathItems' => self::normalizePathItemMap($value),
                 'callbacks' => self::normalizeCallbackMap($value),
+                'requestBodies', 'responses' => self::normalizeBodyMap($value),
+                'examples' => self::normalizeExamples($value),
                 default => self::normalizeGeneric($value),
             };
         }
@@ -137,6 +140,8 @@ final class OpenApiDocumentShapeNormalizer
             $normalized[$key] = match ($key) {
                 'security' => self::normalizeSecurityRequirements($value),
                 'callbacks' => self::normalizeCallbackMap($value),
+                'requestBody' => self::normalizeBody($value),
+                'responses' => self::normalizeBodyMap($value),
                 default => self::normalizeGeneric($value),
             };
         }
@@ -156,6 +161,70 @@ final class OpenApiDocumentShapeNormalizer
         }
 
         return $normalized;
+    }
+
+    private static function normalizeBodyMap(mixed $bodies): mixed
+    {
+        if (!is_array($bodies)) {
+            return self::normalizeGeneric($bodies);
+        }
+        foreach ($bodies as $key => $body) {
+            $bodies[$key] = self::normalizeBody($body);
+        }
+
+        return $bodies;
+    }
+
+    private static function normalizeBody(mixed $body): mixed
+    {
+        if (!is_array($body)) {
+            return self::normalizeGeneric($body);
+        }
+        foreach ($body as $key => $value) {
+            if ($key !== 'content' || !is_array($value)) {
+                $body[$key] = self::normalizeGeneric($value);
+
+                continue;
+            }
+            foreach ($value as $type => $media) {
+                if (!is_array($media)) {
+                    $value[$type] = self::normalizeGeneric($media);
+
+                    continue;
+                }
+                foreach ($media as $field => $node) {
+                    $media[$field] = match ($field) {
+                        'example' => $node,
+                        'examples' => self::normalizeExamples($node),
+                        default => self::normalizeGeneric($node),
+                    };
+                }
+                $value[$type] = $media;
+            }
+            $body[$key] = $value;
+        }
+
+        return $body;
+    }
+
+    private static function normalizeExamples(mixed $examples): mixed
+    {
+        if (!is_array($examples)) {
+            return self::normalizeGeneric($examples);
+        }
+        foreach ($examples as $name => $example) {
+            if (!is_array($example)) {
+                $examples[$name] = self::normalizeGeneric($example);
+
+                continue;
+            }
+            foreach ($example as $key => $value) {
+                $example[$key] = $key === 'value' ? $value : self::normalizeGeneric($value);
+            }
+            $examples[$name] = $example;
+        }
+
+        return $examples;
     }
 
     private static function normalizeCallback(mixed $callback): mixed

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Studio\Gesso\Stubs;
 
+use stdClass;
 use Studio\Gesso\Coverage\OpenApiCoverageTracker;
 use Studio\Gesso\Spec\OpenApiOperationResolver;
 use Studio\Gesso\Validation\Request\ParameterCollector;
@@ -457,7 +458,7 @@ final class StubGenerator
             'skip_notice' => $wireContentType === null || $contentType === OpenApiCoverageTracker::ANY_CONTENT_TYPE
                 ? null
                 : self::skipNotice($wireContentType, $media),
-            'example' => $example,
+            'example' => $hasExample ? $example : $this->bodyPlaceholder($media),
             'has_example' => $hasExample,
         ];
     }
@@ -525,6 +526,30 @@ final class StubGenerator
     }
 
     /**
+     * A type-correct starting point, not a schema-generated valid case. The
+     * TODO remains necessary for required properties and other constraints.
+     *
+     * @param array<string, mixed> $media
+     */
+    private function bodyPlaceholder(array $media): mixed
+    {
+        $schema = is_array($media['schema'] ?? null) ? $media['schema'] : [];
+        $type = $schema['type'] ?? (isset($schema['properties']) ? 'object' : null);
+        if (is_array($type)) {
+            $type = $type[0] ?? null;
+        }
+
+        return match ($type) {
+            'object' => new stdClass(),
+            'string' => '',
+            'integer', 'number' => 0,
+            'boolean' => false,
+            'null' => null,
+            default => [],
+        };
+    }
+
+    /**
      * @param array<string, mixed> $operation
      *
      * @return array{bool, list<StubRequestBody>}
@@ -559,7 +584,7 @@ final class StubGenerator
             $candidates[] = [
                 'content_type' => $key,
                 'wire_content_type' => $wire,
-                'body' => $hasExample ? $example : [],
+                'body' => $hasExample ? $example : (FormBodyDecoder::isFormMediaType($wire) ? [] : $this->bodyPlaceholder($media)),
                 'skip_notice' => self::skipNotice($wire, $media, forRequest: true),
             ];
         }

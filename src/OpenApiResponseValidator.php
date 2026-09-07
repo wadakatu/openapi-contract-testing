@@ -155,6 +155,7 @@ final class OpenApiResponseValidator
      *
      * @param mixed $responseBody see {@see self::validate()}
      * @param null|array<array-key, mixed> $responseHeaders see {@see self::validate()}
+     * @param bool $bodyDecodeFailed the adapter has a parse/read error to append; do not validate its placeholder body
      */
     public function validateWithoutRecording(
         string $specName,
@@ -164,6 +165,7 @@ final class OpenApiResponseValidator
         mixed $responseBody,
         ?string $responseContentType = null,
         ?array $responseHeaders = null,
+        bool $bodyDecodeFailed = false,
     ): OpenApiValidationResult {
         // The `mixed` body parameter is kept for backward compatibility.
         // Framework adapters now pass a DecodedBody envelope directly; legacy
@@ -273,6 +275,7 @@ final class OpenApiResponseValidator
             $statusCode,
             $resolution,
             $body,
+            $bodyDecodeFailed,
         );
 
         $headerErrors = $this->validateHeaders(
@@ -605,6 +608,7 @@ final class OpenApiResponseValidator
         int $statusCode,
         ResponseSchemaResolution $resolution,
         DecodedBody $responseBody,
+        bool $bodyDecodeFailed = false,
     ): ResponseBodyValidationResult {
         return match ($resolution->outcome) {
             // 204-style responses without a `content` block, and content
@@ -636,14 +640,16 @@ final class OpenApiResponseValidator
                 $resolution->contentType,
                 $resolution->skipReason,
             ),
-            ResponseSchemaResolutionOutcome::Resolved => $this->validateResolvedBody(
-                $specName,
-                $method,
-                $matchedPath,
-                $statusCode,
-                $resolution,
-                $responseBody,
-            ),
+            ResponseSchemaResolutionOutcome::Resolved => $bodyDecodeFailed
+                ? new ResponseBodyValidationResult([], $resolution->contentType, 'body could not be decoded')
+                : $this->validateResolvedBody(
+                    $specName,
+                    $method,
+                    $matchedPath,
+                    $statusCode,
+                    $resolution,
+                    $responseBody,
+                ),
             default => throw new LogicException(sprintf(
                 'validateBody() received a pre-body resolution outcome %s; validate() must handle it first.',
                 $resolution->outcome->name,

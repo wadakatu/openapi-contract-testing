@@ -7,6 +7,62 @@ full record.
 Sections are ordered newest-first. If you are jumping multiple minors,
 read each intermediate section in order — behavioural changes compose.
 
+## Unreleased: body-validation reliability
+
+Adapters now preserve the distinction between top-level JSON `{}` and `[]`.
+If an endpoint declares `type: object` but returns `[]`, its test now fails;
+return `{}` or correct the schema to describe an array. This closes a silent
+pass. Existing direct callers passing bare PHP arrays or
+`DecodedBody::present([])` keep the legacy empty-object compatibility behavior.
+The additive [`DecodedBody::fromJsonValue()`](docs/api-reference.md#decodedbody)
+factory lets direct callers opt into unambiguous JSON types.
+
+The same correction applies to **requests**. Laravel's `postJson($uri, [])`
+and Symfony's `jsonRequest('POST', $uri, [])` send `[]`, not `{}`, and now fail
+an object request schema. Their array-only payload arguments cannot express
+an empty object. Send raw JSON instead:
+
+```php
+// Laravel: use your application's Tests\TestCase.
+$this->call('POST', '/object', server: ['CONTENT_TYPE' => 'application/json'], content: '{}');
+
+// Symfony KernelBrowser / HttpKernelBrowser:
+$client->request('POST', '/object', server: ['CONTENT_TYPE' => 'application/json'], content: '{}');
+```
+
+For generated request cases, send the additive `$case->bodyAsJson()` accessor as
+the raw content; see the [fuzzing dispatch examples](docs/fuzzing.md).
+Do not convert the body to an array or use `JSON_FORCE_OBJECT`: those can
+change nested empty objects or genuine arrays too. Literal JSON `null` is
+sent as the string `'null'`; omitting content means no body.
+
+Symfony and PSR-7 now retain the presence of opaque non-JSON request bodies,
+matching Laravel. A present XML body no longer fails a required-body check as
+if it were empty. This does not add XML schema validation: unsupported schemas
+still produce `Skipped`. PSR-7 does not consume opaque streams: it uses a known
+size, or restores the cursor after inspecting a seekable stream of unknown
+size. Inspection is deferred until the resolved contract requires the body;
+optional, undeclared, or unmatched bodies are not read. If required presence
+cannot be determined safely, it reports only a body-read failure, never a
+second "empty body" error. The same rule applies to JSON and form decoding
+failures: only the parse/read error is reported for the body, and other
+parameter/security errors remain visible even with a documented 4xx response.
+
+Laravel, Symfony, and PSR-7 now share the JSON-or-unspecified decoding rule on
+both sides. A parameter-only header such as `; charset=utf-8` has no media type
+and follows the missing-type JSON fallback: malformed JSON fails on requests
+and responses alike.
+
+`gesso stubs` retains empty objects in media-type examples (including nested
+objects) and emits `{}` placeholders for object schemas instead of `[]`.
+Placeholders are still TODOs, not guaranteed schema-valid generated cases;
+required properties and other constraints may need application-specific values.
+
+`gesso doctor` now reports malformed request-body content nodes using the same
+structural rules as runtime validation. Previously clean doctor runs may now
+fail with `structure` errors; repair the reported nodes before running tests.
+No flags, exit codes, diagnostic categories, or versioned wire formats change.
+
 ## Deprecations
 
 Every surface v3 removes or renames is deprecated in a v2 minor first, per the

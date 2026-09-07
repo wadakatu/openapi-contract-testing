@@ -78,25 +78,9 @@ final class ResponseBodyValidator
 
         $jsonSchema = $resolution->convertedSchema();
 
-        // PHP's `json_decode($json, true)` returns `[]` for both `[]` and `{}`.
-        // The framework adapters decode JSON bodies as objects (assoc=false,
-        // issue #559), so `$bodyValue` is `[]` here only in two cases: (a) a
-        // caller invokes the public `validate()` entry point directly with a
-        // legacy assoc-array body instead of going through an adapter — still
-        // supported, see the `$responseBody` param on
-        // {@see \Studio\Gesso\OpenApiResponseValidator::validate()} — or (b) the wire
-        // body was a genuine empty JSON array `[]`, which decodes to PHP `[]`
-        // regardless of the decode mode. ObjectConverter preserves empty
-        // arrays as JSON arrays, so the schema's `type: object` would then
-        // reject the body with a misleading "must match the type: object"
-        // error for case (a). Coerce `[]` → stdClass when the schema
-        // explicitly accepts an object so the empty-object-against-type-object
-        // case (very common for status acks and "no items yet" responses)
-        // validates. Known trade-off for case (b): a genuine wire-level empty
-        // array still silently passes `type: object` instead of failing. Issue
-        // #560 tracks giving `DecodedBody` a provenance bit for object-shaped
-        // wire decodes so unambiguous paths can skip this coercion.
-        if ($bodyValue === [] && self::schemaAcceptsObject($schema)) {
+        // Only legacy assoc-array callers need the ambiguous [] -> {} shim.
+        // Adapters retain JSON types, so a wire [] must stay an array.
+        if (!$responseBody->preservesJsonTypes && $bodyValue === [] && self::schemaAcceptsObject($schema)) {
             $bodyValue = new stdClass();
         }
 
