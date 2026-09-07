@@ -33,6 +33,28 @@ final readonly class GeneratedResponseCases implements Countable, IteratorAggreg
         }
     }
 
+    /**
+     * Serialization drops the explorer hook: it only records SDK exercise
+     * coverage on the current process's tracker, and a copy handed to another
+     * process (a PHPUnit data provider feeding a #[RunInSeparateProcess]
+     * test) iterated without it before the hook lived on the object too.
+     *
+     * @return array{cases: list<GeneratedResponseCase>}
+     */
+    public function __serialize(): array
+    {
+        return ['cases' => $this->cases];
+    }
+
+    /**
+     * @param array{cases: list<GeneratedResponseCase>} $data
+     */
+    public function __unserialize(array $data): void
+    {
+        $this->cases = $data['cases'];
+        $this->beforeEach = null;
+    }
+
     public function count(): int
     {
         return count($this->cases);

@@ -12,6 +12,8 @@ use Studio\Gesso\Fuzz\GeneratedResponseCase;
 use Studio\Gesso\Fuzz\GeneratedResponseCases;
 
 use function iterator_to_array;
+use function serialize;
+use function unserialize;
 
 class GeneratedResponseCasesTest extends TestCase
 {
@@ -63,6 +65,29 @@ class GeneratedResponseCasesTest extends TestCase
         } catch (RuntimeException) {
             $this->assertSame(['before', 'callback-0'], $events);
         }
+    }
+
+    #[Test]
+    public function serialization_keeps_the_cases_and_drops_the_hook(): void
+    {
+        $hookCalls = 0;
+        $cases = new GeneratedResponseCases(
+            [$this->caseAt(0), $this->caseAt(1)],
+            static function () use (&$hookCalls): void {
+                $hookCalls++;
+            },
+        );
+
+        $copy = unserialize(serialize($cases));
+        $this->assertInstanceOf(GeneratedResponseCases::class, $copy);
+        $this->assertCount(2, $copy);
+
+        $visited = [];
+        $copy->each(static function (GeneratedResponseCase $case) use (&$visited): void {
+            $visited[] = $case->caseIndex;
+        });
+        $this->assertSame([0, 1], $visited);
+        $this->assertSame(0, $hookCalls);
     }
 
     private function caseAt(int $index): GeneratedResponseCase

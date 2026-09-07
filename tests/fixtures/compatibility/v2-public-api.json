@@ -3952,6 +3952,36 @@
                     }
                 ]
             },
+            "__serialize": {
+                "static": false,
+                "final": false,
+                "abstract": false,
+                "returns_reference": false,
+                "return_type": "array",
+                "attributes": [],
+                "parameters": []
+            },
+            "__unserialize": {
+                "static": false,
+                "final": false,
+                "abstract": false,
+                "returns_reference": false,
+                "return_type": "void",
+                "attributes": [],
+                "parameters": [
+                    {
+                        "name": "data",
+                        "type": "array",
+                        "optional": false,
+                        "variadic": false,
+                        "by_reference": false,
+                        "default": {
+                            "unavailable": true
+                        },
+                        "attributes": []
+                    }
+                ]
+            },
             "count": {
                 "static": false,
                 "final": false,
