@@ -6,11 +6,11 @@ namespace Studio\Gesso\Coverage;
 
 use const STR_PAD_RIGHT;
 
+use Studio\Gesso\Internal\CoverageTotals;
 use Studio\Gesso\PHPUnit\ConsoleOutput;
 
 use function array_keys;
 use function array_unique;
-use function round;
 use function sprintf;
 use function str_pad;
 use function str_repeat;
@@ -70,8 +70,8 @@ final class ConsoleCoverageRenderer
             }
 
             if ($result !== null) {
-                $endpointPct = self::percentage($result['endpointFullyCovered'], $result['endpointTotal']);
-                $responsePct = self::percentage($result['responseCovered'], $result['responseTotal']);
+                $endpointPct = CoverageTotals::percentage($result['endpointFullyCovered'], $result['endpointTotal']);
+                $responsePct = CoverageTotals::percentage($result['responseCovered'], $result['responseTotal']);
 
                 $output .= sprintf(
                     "\n[%s] endpoints: %d/%d fully covered (%s%%), %d partial, %d uncovered\n",
@@ -98,7 +98,7 @@ final class ConsoleCoverageRenderer
                     'SDK responses: %d/%d exercised (%s%%), %d unexercised' . "\n",
                     $sdkResult['responseExercised'],
                     $sdkResult['responseTotal'],
-                    self::percentage($sdkResult['responseExercised'], $sdkResult['responseTotal']),
+                    CoverageTotals::percentage($sdkResult['responseExercised'], $sdkResult['responseTotal']),
                     $sdkResult['responseUnexercised'],
                 );
             }
@@ -283,10 +283,5 @@ final class ConsoleCoverageRenderer
             ResponseCoverageState::Skipped => self::MARKER_SKIPPED,
             ResponseCoverageState::Uncovered => self::MARKER_UNCOVERED,
         };
-    }
-
-    private static function percentage(int $covered, int $total): float|int
-    {
-        return $total > 0 ? round($covered / $total * 100, 1) : 0;
     }
 }

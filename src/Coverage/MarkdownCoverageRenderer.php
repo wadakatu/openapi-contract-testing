@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace Studio\Gesso\Coverage;
 
+use Studio\Gesso\Internal\CoverageTotals;
+
 use function array_keys;
 use function array_unique;
 use function implode;
-use function round;
 use function sprintf;
 use function str_replace;
 
@@ -47,22 +48,22 @@ final class MarkdownCoverageRenderer
                 $lines[] = sprintf('### %s', $specName);
                 $lines[] = '';
             } else {
-                $endpointPct = self::percentage($result['endpointFullyCovered'], $result['endpointTotal']);
-                $responsePct = self::percentage($result['responseCovered'], $result['responseTotal']);
+                $endpointPct = CoverageTotals::percentage($result['endpointFullyCovered'], $result['endpointTotal']);
+                $responsePct = CoverageTotals::percentage($result['responseCovered'], $result['responseTotal']);
 
                 $lines[] = sprintf(
                     '### %s — endpoints: %d/%d fully covered (%s%%)',
                     $specName,
                     $result['endpointFullyCovered'],
                     $result['endpointTotal'],
-                    self::formatPercent($endpointPct),
+                    $endpointPct,
                 );
                 $lines[] = '';
                 $lines[] = sprintf(
                     '_responses: %d/%d covered (%s%%) — %d skipped, %d uncovered, %d partial endpoints, %d uncovered endpoints_',
                     $result['responseCovered'],
                     $result['responseTotal'],
-                    self::formatPercent($responsePct),
+                    $responsePct,
                     $result['responseSkipped'],
                     $result['responseUncovered'],
                     $result['endpointPartial'],
@@ -118,7 +119,7 @@ final class MarkdownCoverageRenderer
                 '_SDK responses: %d/%d exercised (%s%%) — %d unexercised_',
                 $result['responseExercised'],
                 $result['responseTotal'],
-                self::formatPercent(self::percentage($result['responseExercised'], $result['responseTotal'])),
+                CoverageTotals::percentage($result['responseExercised'], $result['responseTotal']),
                 $result['responseUnexercised'],
             ),
             '',
@@ -262,15 +263,5 @@ final class MarkdownCoverageRenderer
                 : 'skipped',
             ResponseCoverageState::Uncovered => 'uncovered',
         };
-    }
-
-    private static function percentage(int $covered, int $total): float|int
-    {
-        return $total > 0 ? round($covered / $total * 100, 1) : 0;
-    }
-
-    private static function formatPercent(float|int $value): string
-    {
-        return (string) $value;
     }
 }

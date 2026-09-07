@@ -10,6 +10,7 @@ use const JSON_UNESCAPED_UNICODE;
 
 use DateTimeImmutable;
 use RuntimeException;
+use Studio\Gesso\Internal\CoverageTotals;
 use Studio\Gesso\Internal\ToolVersion;
 
 use function array_keys;
@@ -145,31 +146,19 @@ final class JsonCoverageRenderer
      */
     private static function aggregate(array $results): array
     {
-        $totals = [
-            'endpoint_total' => 0,
-            'endpoint_fully_covered' => 0,
-            'endpoint_partial' => 0,
-            'endpoint_uncovered' => 0,
-            'endpoint_request_only' => 0,
-            'response_total' => 0,
-            'response_covered' => 0,
-            'response_skipped' => 0,
-            'response_uncovered' => 0,
+        $sums = CoverageTotals::sum($results);
+
+        return [
+            'endpoint_total' => $sums['endpointTotal'],
+            'endpoint_fully_covered' => $sums['endpointFullyCovered'],
+            'endpoint_partial' => $sums['endpointPartial'],
+            'endpoint_uncovered' => $sums['endpointUncovered'],
+            'endpoint_request_only' => $sums['endpointRequestOnly'],
+            'response_total' => $sums['responseTotal'],
+            'response_covered' => $sums['responseCovered'],
+            'response_skipped' => $sums['responseSkipped'],
+            'response_uncovered' => $sums['responseUncovered'],
         ];
-
-        foreach ($results as $result) {
-            $totals['endpoint_total'] += $result['endpointTotal'];
-            $totals['endpoint_fully_covered'] += $result['endpointFullyCovered'];
-            $totals['endpoint_partial'] += $result['endpointPartial'];
-            $totals['endpoint_uncovered'] += $result['endpointUncovered'];
-            $totals['endpoint_request_only'] += $result['endpointRequestOnly'];
-            $totals['response_total'] += $result['responseTotal'];
-            $totals['response_covered'] += $result['responseCovered'];
-            $totals['response_skipped'] += $result['responseSkipped'];
-            $totals['response_uncovered'] += $result['responseUncovered'];
-        }
-
-        return $totals;
     }
 
     /**
